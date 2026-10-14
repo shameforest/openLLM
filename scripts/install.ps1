@@ -73,7 +73,9 @@ if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     $setup = Join-Path $env:TEMP "OllamaSetup.exe"
     Write-Host "  Ollama wird geladen und installiert ..."
     Invoke-WebRequest -UseBasicParsing "https://ollama.com/download/OllamaSetup.exe" -OutFile $setup
-    Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+    # /NORESTART and a hidden window so the installer's auto-launched Ollama app menu cannot grab this console.
+    Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -WindowStyle Hidden
+    Start-Sleep -Seconds 2
     Refresh-Path
     if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Fail "Ollama wurde nicht installiert. Bitte OllamaSetup.exe von ollama.com einmal von Hand ausfuehren."
