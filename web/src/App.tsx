@@ -5,7 +5,7 @@ import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './st
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { companionPost } from './companion'
 import { expandSkillCommand, useSkills } from './skills'
-import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks } from './claude'
+import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks, taskSplit } from './claude'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 
@@ -13,7 +13,9 @@ import { Settings } from './SettingsPanel'
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
 // simulated answer so the window is never dead — the same render path is used either way.
 
-interface Msg { role: 'user' | 'assistant'; text: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude'; pending?: boolean }
+interface Msg { role: 'user' | 'assistant'; text: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude' | 'stats'; pending?: boolean }
+
+const fmtTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
 
 const KEY = 'openllm.samples'
 const DEMO = (
@@ -101,7 +103,7 @@ export default function App() {
     if (!run || !run.turn.done) return
     const t = run.turn
     setMessages((m) => [...m, { role: 'assistant', text: t.text, tools: t.tools, error: t.error }])
-    if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t.text)
+    if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t)
     if (!t.error && produced(t) > 0) {
       const next = [...history, { ms: Date.now() - run.startedAt, tokens: produced(t) }].slice(-20)
       setHistory(next)
@@ -161,18 +163,42 @@ export default function App() {
     setMessages((m) => { const i = m.findIndex((x) => x.pending); if (i < 0) return [...m, final]; const c = [...m]; c[i] = final; return c })
 
   // After a local answer: (auto) send marked subtasks to Claude, and/or have Claude audit the whole result. Paid API.
-  async function postProcessClaude(text: string) {
+  // Tracks how many output tokens came from Claude vs the local model, to show the split afterwards.
+  async function postProcessClaude(t: Turn) {
+    const text = t.text
+    let offloads = 0
+    let claudeIn = 0
+    let claudeOut = 0
     if (modes.offload) {
       for (const task of offloadTasks(text)) {
+        offloads++
         setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '↗ Claude bearbeitet eine Teilaufgabe …', pending: true }])
-        try { const r = await claudeOffload(task, modes.claudeModel); finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` }) }
-        catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
+        try {
+          const r = await claudeOffload(task, modes.claudeModel)
+          claudeIn += r.usage?.input_tokens ?? 0
+          claudeOut += r.usage?.output_tokens ?? 0
+          finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` })
+        } catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
       }
     }
     if (modes.audit) {
       setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '🔍 Claude prüft das Ergebnis …', pending: true }])
-      try { const r = await claudeAudit(text, modes.claudeModel); finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` }) }
-      catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
+      try {
+        const r = await claudeAudit(text, modes.claudeModel)
+        claudeIn += r.usage?.input_tokens ?? 0
+        claudeOut += r.usage?.output_tokens ?? 0
+        finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` })
+      } catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
+    }
+    // Show the split only when work was actually offloaded (that is what the user asked to see).
+    if (offloads > 0) {
+      const estimated = t.usage?.output == null || t.usage.output === 0
+      const localOut = estimated ? Math.max(1, Math.round(produced(t) / 4)) : t.usage!.output // ~4 chars ≈ 1 token
+      const { localPct, claudePct } = taskSplit(localOut, claudeOut)
+      setMessages((m) => [...m, { role: 'assistant', kind: 'stats', text:
+        `📊 Aufteilung dieser Aufgabe — Lokal ${localPct}% · Claude ${claudePct}%.  ` +
+        `Tokens: lokal ${estimated ? '~' : ''}${fmtTokens(localOut)}, Claude ${fmtTokens(claudeOut)} ` +
+        `(Eingabe ${fmtTokens(claudeIn)} / Ausgabe ${fmtTokens(claudeOut)}).` }])
     }
   }
 
@@ -328,6 +354,9 @@ export default function App() {
 function Bubble({ m, live = false, thinking = false }: { m: Msg; live?: boolean; thinking?: boolean }) {
   if (m.role === 'user') {
     return <div className="self-end"><div className="max-w-[560px] rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>
+  }
+  if (m.kind === 'stats') {
+    return <div className="self-start rounded-lg border border-line bg-panel px-3 py-1.5 text-[12px] text-ink2" data-testid="task-stats">{m.text}</div>
   }
   const isClaude = m.kind === 'claude'
   return (

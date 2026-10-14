@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { offloadTasks } from './claude'
+import { offloadTasks, taskSplit } from './claude'
+
+describe('taskSplit', () => {
+  it('splits by output tokens and sums to 100', () => {
+    const s = taskSplit(700, 300)
+    expect(s).toEqual({ localPct: 70, claudePct: 30 })
+  })
+  it('is all-local when Claude did nothing', () => {
+    expect(taskSplit(500, 0)).toEqual({ localPct: 100, claudePct: 0 })
+  })
+  it('never divides by zero', () => {
+    expect(taskSplit(0, 0)).toEqual({ localPct: 0, claudePct: 100 })
+  })
+})
 
 describe('offloadTasks', () => {
   it('extracts a single marked subtask, trimmed', () => {

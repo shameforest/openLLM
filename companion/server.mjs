@@ -199,7 +199,8 @@ async function callClaude({ system, prompt, model }) {
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error((j && j.error && j.error.message) || `Claude-API Fehler ${r.status}`)
   const text = Array.isArray(j.content) ? j.content.filter((c) => c.type === 'text').map((c) => c.text).join('') : ''
-  return { text, model: useModel }
+  const usage = { input_tokens: Number(j.usage && j.usage.input_tokens) || 0, output_tokens: Number(j.usage && j.usage.output_tokens) || 0 }
+  return { text, model: useModel, usage }
 }
 
 // ---- static web UI ----

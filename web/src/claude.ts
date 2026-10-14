@@ -23,13 +23,20 @@ const OFFLOAD_SYSTEM =
   '(Code mit kurzen deutschen Kommentaren, falls es Code ist), ohne Rückfragen. Wenn die Aufgabe ohne zusätzlichen ' +
   'Zusammenhang nicht eindeutig lösbar ist, sage das in einem Satz, statt zu raten.'
 
-export interface ClaudeReply { text: string; model: string }
+export interface ClaudeReply { text: string; model: string; usage?: { input_tokens: number; output_tokens: number } }
 
 export const claudeAudit = (content: string, model: string) =>
   companionPost<ClaudeReply>('/claude', { system: AUDIT_SYSTEM, prompt: content, model })
 
 export const claudeOffload = (task: string, model: string) =>
   companionPost<ClaudeReply>('/claude', { system: OFFLOAD_SYSTEM, prompt: task, model })
+
+/** Share of the work done locally vs by Claude, from output-token counts (the best available proxy). */
+export function taskSplit(localOutTokens: number, claudeOutTokens: number): { localPct: number; claudePct: number } {
+  const total = localOutTokens + claudeOutTokens || 1
+  const localPct = Math.round((localOutTokens / total) * 100)
+  return { localPct, claudePct: 100 - localPct }
+}
 
 /** Pull out the <<<CLAUDE … >>> blocks the local model marked for offload. */
 export function offloadTasks(text: string): string[] {
