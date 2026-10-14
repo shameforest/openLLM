@@ -44,5 +44,13 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 1. User runs `scripts/install.ps1` on the Shadow PC → send log + `opencode --version` + a screenshot. Confirm OpenCode is 1.x and the config loads.
 2. Then M1 proof: a first autonomous mini-task (agent plans → edits → runs → tests). Then M3: Node + enable Playwright MCP, sandbox check (WSL/Docker), image input.
 
+## Modes + batch-autopilot skill (2026-10-14)
+- `skills/batch-autopilot/SKILL.md`: procedure for the local model to finish big tasks despite its weaknesses (overthinks, forgets the goal, tool-call drift) — small batches, a FORTSCHRITT.md memory file re-read each batch, run/test each step, start fresh after ~8 steps. Installed to `~/.config/opencode/skills/`. Usable in the terminal too.
+- Three optional UI modes (all OFF by default, self-explanatory labels, persisted in `web/src/settings.ts`), shown in a "Modi" panel (`web/src/Modi.tsx`):
+  1. **Autopilot** — prepends `AUTOPILOT_PREFIX` so the local model follows the batch-autopilot skill.
+  2. **Mit Claude Code beschleunigen** — copy/paste handoff of a self-contained benign sub-task (`web/src/handoff.ts` + `Handoff.tsx`); no auto connection (no paid API). BOUNDARY: only self-contained benign sub-tasks; NOT a mechanism to hide a disallowed task from Claude. Sensitive work stays local.
+  3. **Claude-Code-Audit** — copy/paste handoff to have Claude review plan/code, paste the audit back as a local-model briefing.
+- `handoff.ts` + `settings.ts` unit-tested (20 tests total). Autopilot's prompt effect and the handoff flow still to be tried against a running server on the Shadow PC.
+
 ## Log
 - 2026-10-14: M0 scaffold + M1 foundation + MIT license pushed. M2 agent config written (opencode.json with the limit/temperature fix, AGENTS.md, review subagent, /review /test /commit commands, permission tiers, plan-mode gate). OpenCode v1.19.0 schema looked up by a `sonnet` agent, reviewed and applied by the main session. Nothing run on Windows/GPU.

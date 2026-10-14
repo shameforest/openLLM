@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { type AnswerSample, type Timing, elapsedLabel, fraction, remainingLabel } from './eta'
 import { type OcEvent, connectEvents, createSession, health, sendPrompt } from './api'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
+import { AUTOPILOT_PREFIX, useSettings } from './settings'
+import { Modi } from './Modi'
+import { Handoff, type HandoffKind } from './Handoff'
 
 // The openLLM desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
@@ -26,6 +29,10 @@ export default function App() {
   const [history, setHistory] = useState<AnswerSample[]>(loadHistory)
   const [online, setOnline] = useState<boolean | null>(null)
   const [, setTick] = useState(0)
+  const modes = useSettings()
+  const modesActive = [modes.autopilot, modes.offload, modes.audit].filter(Boolean).length
+  const [modiOpen, setModiOpen] = useState(false)
+  const [handoff, setHandoff] = useState<HandoffKind | null>(null)
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
   const endRef = useRef<HTMLDivElement>(null)
@@ -100,7 +107,7 @@ export default function App() {
     if (online) {
       try {
         if (!sessionRef.current) sessionRef.current = (await createSession('openLLM')).id
-        await sendPrompt(sessionRef.current, prompt)
+        await sendPrompt(sessionRef.current, modes.autopilot ? AUTOPILOT_PREFIX + prompt : prompt)
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
       }
@@ -116,8 +123,13 @@ export default function App() {
           <span className="size-3 rounded-full bg-accent" />
           <span className="text-[15px] font-semibold tracking-tight">openLLM</span>
         </div>
-        <button className="mx-3 mb-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
+        <button className="mx-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
           onClick={() => { setMessages([]); setRun(null); sessionRef.current = null }}>+ Neuer Chat</button>
+        <button className="mx-3 mb-3 mt-2 flex items-center justify-between rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
+          onClick={() => setModiOpen(true)} data-testid="open-modi">
+          <span>Modi</span>
+          {modesActive > 0 && <span className="rounded-full bg-accent/20 px-2 text-[12px] text-accent">{modesActive} an</span>}
+        </button>
         <div className="px-4 py-1 text-[11px] uppercase tracking-wider text-ink3">Verlauf</div>
         <div className="flex-1 overflow-y-auto px-3 text-[13px] text-ink3"><p className="px-1 py-2">Noch keine Unterhaltungen.</p></div>
         <div className="border-t border-line px-4 py-3">
@@ -155,6 +167,12 @@ export default function App() {
 
         <div className="border-t border-line bg-bg px-6 py-4">
           <div className="mx-auto max-w-[760px]">
+            {(modes.offload || modes.audit) && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {modes.offload && <button className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink2 hover:bg-user" onClick={() => setHandoff('offload')} data-testid="btn-offload">↗ Teilaufgabe an Claude Code</button>}
+                {modes.audit && <button className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink2 hover:bg-user" onClick={() => setHandoff('audit')} data-testid="btn-audit">🔍 Audit durch Claude Code</button>}
+              </div>
+            )}
             {run && !run.turn.done && <Clock startedAt={run.startedAt} chars={produced(run.turn)} thinking={run.turn.text === ''} history={history} />}
             <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
               <textarea className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink3"
@@ -170,6 +188,8 @@ export default function App() {
           </div>
         </div>
       </main>
+      <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
+      {handoff && <Handoff kind={handoff} onClose={() => setHandoff(null)} onApply={(t) => setInput(t)} />}
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
     </div>
   )
