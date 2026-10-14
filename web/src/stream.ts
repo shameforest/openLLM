@@ -21,6 +21,17 @@ export const produced = (t: Turn): number => t.text.length + t.reasoning.length
 
 function num(x: unknown): number { return typeof x === 'number' ? x : 0 }
 
+/** Separate a qwen-style <think>…</think> section from the final answer. Handles the streaming case where the
+ *  closing tag has not arrived yet (everything after <think> is still thinking, the answer is empty). */
+export function splitThinking(text: string): { thinking: string; answer: string } {
+  const open = text.indexOf('<think>')
+  if (open === -1) return { thinking: '', answer: text }
+  const before = text.slice(0, open)
+  const close = text.indexOf('</think>', open)
+  if (close === -1) return { thinking: text.slice(open + 7), answer: before }
+  return { thinking: text.slice(open + 7, close), answer: before + text.slice(close + 8) }
+}
+
 export function reduceEvent(turn: Turn, e: OcEvent): Turn {
   const p = (e.properties ?? {}) as Record<string, any>
   switch (e.type) {

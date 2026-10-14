@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type AnswerSample, type Timing, elapsedLabel, fraction, remainingLabel } from './eta'
 import { type OcEvent, abort, connectEvents, createSession, health, sendPrompt } from './api'
-import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
+import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { companionPost } from './companion'
 import { expandSkillCommand, useSkills } from './skills'
@@ -13,7 +13,7 @@ import { Settings } from './SettingsPanel'
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
 // simulated answer so the window is never dead — the same render path is used either way.
 
-interface Msg { role: 'user' | 'assistant'; text: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude' | 'stats'; pending?: boolean }
+interface Msg { role: 'user' | 'assistant'; text: string; reasoning?: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude' | 'stats'; pending?: boolean }
 
 const fmtTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
 
@@ -102,7 +102,7 @@ export default function App() {
   useEffect(() => {
     if (!run || !run.turn.done) return
     const t = run.turn
-    setMessages((m) => [...m, { role: 'assistant', text: t.text, tools: t.tools, error: t.error }])
+    setMessages((m) => [...m, { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error }])
     if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t)
     if (!t.error && produced(t) > 0) {
       const next = [...history, { ms: Date.now() - run.startedAt, tokens: produced(t) }].slice(-20)
@@ -165,7 +165,7 @@ export default function App() {
   // After a local answer: (auto) send marked subtasks to Claude, and/or have Claude audit the whole result. Paid API.
   // Tracks how many output tokens came from Claude vs the local model, to show the split afterwards.
   async function postProcessClaude(t: Turn) {
-    const text = t.text
+    const text = splitThinking(t.text).answer || t.text // review/offload the final answer, not the thinking
     let offloads = 0
     let claudeIn = 0
     let claudeOut = 0
@@ -286,7 +286,7 @@ export default function App() {
               </div>
             )}
             {messages.map((m, i) => <Bubble key={i} m={m} />)}
-            {run && <Bubble m={{ role: 'assistant', text: run.turn.text, tools: run.turn.tools, error: run.turn.error }} live={!run.turn.done} thinking={run.turn.text === ''} />}
+            {run && <Bubble m={{ role: 'assistant', text: run.turn.text, reasoning: run.turn.reasoning, tools: run.turn.tools, error: run.turn.error }} live={!run.turn.done} />}
             <div ref={endRef} />
           </div>
         </div>
@@ -351,7 +351,7 @@ export default function App() {
   )
 }
 
-function Bubble({ m, live = false, thinking = false }: { m: Msg; live?: boolean; thinking?: boolean }) {
+function Bubble({ m, live = false }: { m: Msg; live?: boolean }) {
   if (m.role === 'user') {
     return <div className="self-end"><div className="max-w-[560px] rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>
   }
@@ -359,6 +359,11 @@ function Bubble({ m, live = false, thinking = false }: { m: Msg; live?: boolean;
     return <div className="self-start rounded-lg border border-line bg-panel px-3 py-1.5 text-[12px] text-ink2" data-testid="task-stats">{m.text}</div>
   }
   const isClaude = m.kind === 'claude'
+  // Keep the chain-of-thought (reasoning events + inline <think>…</think>) out of the main answer.
+  const split = splitThinking(m.text)
+  const thinking = [m.reasoning || '', split.thinking].filter((x) => x.trim()).join('\n').trim()
+  const answer = split.answer
+  const waiting = live && !answer.trim() // still only thinking, no final answer yet
   return (
     <div className="max-w-[640px] self-start">
       <div className={`mb-1 text-[12px] font-medium ${isClaude ? 'text-sky-400' : 'text-accent'}`}>{isClaude ? 'Claude (bezahlt)' : 'OpenDante'}</div>
@@ -372,10 +377,25 @@ function Bubble({ m, live = false, thinking = false }: { m: Msg; live?: boolean;
           ))}
         </div>
       )}
-      {thinking && live
-        ? <div className="text-[14px] italic text-ink3">denkt nach…</div>
-        : <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">{m.text}{live && <Caret />}</div>}
+      {thinking && <ThinkingPanel text={thinking} live={waiting} />}
+      {answer.trim()
+        ? <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">{answer}{live && <Caret />}</div>
+        : waiting ? <div className="text-[14px] italic text-ink3">denkt nach…</div> : null}
       {m.error && <div className="mt-2 text-[13px] text-red-400">Fehler: {m.error}</div>}
+    </div>
+  )
+}
+
+// Claude-style collapsible "thinking" block: the main answer stays clean; the chain-of-thought opens on click.
+function ThinkingPanel({ text, live }: { text: string; live: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mb-2">
+      <button className="flex items-center gap-1.5 text-[12px] text-ink3 hover:text-ink2" onClick={() => setOpen((o) => !o)} data-testid="thinking-toggle">
+        <span className="inline-block w-3">{open ? '▾' : '▸'}</span>
+        <span>💭 Gedankengang{live ? ' (läuft…)' : ''}</span>
+      </button>
+      {open && <div className="mt-1 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg px-3 py-2 text-[12px] leading-relaxed text-ink3" data-testid="thinking-text">{text}</div>}
     </div>
   )
 }
