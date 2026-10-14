@@ -4,8 +4,8 @@ import { type OcEvent, connectEvents, createSession, health, sendPrompt } from '
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { Modi } from './Modi'
-import { Settings } from './Settings'
-import { Handoff, type HandoffKind } from './Handoff'
+import { Settings } from './SettingsPanel'
+import { Handoff, type HandoffKind } from './HandoffDialog'
 
 // The OpenDante desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
