@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type AnswerSample, type Timing, elapsedLabel, fraction, remainingLabel } from './eta'
-import { type OcEvent, connectEvents, createSession, health, sendPrompt } from './api'
+import { type OcEvent, abort, connectEvents, createSession, health, sendPrompt } from './api'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { companionPost } from './companion'
@@ -152,6 +152,14 @@ export default function App() {
     }
   }
 
+  // Stop the running answer: abort it on the server (and the fallback simulator), then finish the turn locally so the
+  // transcript keeps what arrived so far.
+  async function stopRun() {
+    simRef.current() // stop the offline preview if it is the one running
+    if (sessionRef.current) await abort(sessionRef.current, modes.workdir)
+    setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: { ...prev.turn, done: true } } : prev))
+  }
+
   // Let the user hand the agent a real folder on this PC. The browser can't read a folder path, so the local helper
   // service opens the native folder dialog and returns the chosen absolute path; we then work in that folder.
   async function pickFolder() {
@@ -267,8 +275,15 @@ export default function App() {
                 placeholder="Beschreibe, was gebaut werden soll… (oder /skillname)" rows={1} value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
-              <button className="mb-1 rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410] disabled:opacity-40"
-                onClick={() => void send()} disabled={!input.trim() || running} data-testid="send">Senden</button>
+              {running ? (
+                <button className="mb-1 flex size-9 items-center justify-center rounded-lg bg-accent text-[#1a1410]"
+                  onClick={() => void stopRun()} data-testid="stop" aria-label="Stoppen" title="Läuft – zum Abbrechen klicken">
+                  <span className="size-3 rounded-[2px] bg-[#1a1410]" />
+                </button>
+              ) : (
+                <button className="mb-1 rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410] disabled:opacity-40"
+                  onClick={() => void send()} disabled={!input.trim()} data-testid="send">Senden</button>
+              )}
             </div>
             <p className="mt-1.5 text-center text-[11px] text-ink3">
               {online ? 'Antworten kommen vom lokalen Modell auf deiner Grafikkarte.' : 'Vorschau mit simulierter Antwort — echte Anbindung aktiv, sobald der Server läuft.'}
@@ -320,7 +335,9 @@ function Clock({ startedAt, chars, thinking, history }: { startedAt: number; cha
         </span>
         <span className="mono flex items-center gap-4">
           <span title="vergangene Zeit">{elapsedLabel(t)}</span>
-          <span className="text-ink3" title="geschätzte Restzeit (lernt aus früheren Antworten)">{remainingLabel(t, history)}</span>
+          <span className="text-ink3" title="geschätzte Restzeit (lernt aus früheren Antworten)">
+            {remainingLabel(t, history) === '…' ? 'Rest: lernt noch' : `noch ${remainingLabel(t, history)}`}
+          </span>
         </span>
       </div>
       <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">

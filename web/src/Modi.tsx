@@ -52,7 +52,8 @@ function Switch({ on, onClick, testid }: { on: boolean; onClick: () => void; tes
   return (
     <button role="switch" aria-checked={on} onClick={onClick} data-testid={`switch-${testid}`}
       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? 'bg-accent' : 'bg-line'}`}>
-      <span className={`absolute top-0.5 size-5 rounded-full bg-white transition-transform ${on ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+      {/* knob: fixed 2px from the left, travels exactly 20px so it lands 2px from the right (44 − 20 − 2·2) */}
+      <span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0'}`} />
     </button>
   )
 }
