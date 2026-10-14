@@ -8,7 +8,6 @@ import { expandSkillCommand, useSkills } from './skills'
 import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks } from './claude'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
-import { Handoff, type HandoffKind } from './HandoffDialog'
 
 // The OpenDante desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
@@ -40,7 +39,6 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
   const [folderMsg, setFolderMsg] = useState('')
-  const [handoff, setHandoff] = useState<HandoffKind | null>(null)
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
   const endRef = useRef<HTMLDivElement>(null)
@@ -103,7 +101,7 @@ export default function App() {
     if (!run || !run.turn.done) return
     const t = run.turn
     setMessages((m) => [...m, { role: 'assistant', text: t.text, tools: t.tools, error: t.error }])
-    if (!t.error && t.text.trim() && modes.claudeAuto && (modes.offload || modes.audit)) void postProcessClaude(t.text)
+    if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t.text)
     if (!t.error && produced(t) > 0) {
       const next = [...history, { ms: Date.now() - run.startedAt, tokens: produced(t) }].slice(-20)
       setHistory(next)
@@ -144,7 +142,7 @@ export default function App() {
         const asked = expandSkillCommand(prompt, skills.list) // turn a /skillname command into a skill instruction
         let text = asked
         if (modes.autopilot) text = AUTOPILOT_PREFIX + text
-        if (modes.offload && modes.claudeAuto) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks
+        if (modes.offload) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         await sendPrompt(sessionRef.current, text, modes.workdir)
@@ -269,17 +267,16 @@ export default function App() {
 
         <div className="border-t border-line bg-bg px-6 py-4">
           <div className="mx-auto max-w-[760px]">
-            {(modes.offload || modes.audit) && !modes.claudeAuto && (
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="text-[12px] text-ink3">Manuell (kostenlos):</span>
-                {modes.offload && <button className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink2 hover:bg-user" onClick={() => setHandoff('offload')} data-testid="btn-offload">↗ Teilaufgabe an Claude Code</button>}
-                {modes.audit && <button className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink2 hover:bg-user" onClick={() => setHandoff('audit')} data-testid="btn-audit">🔍 Audit durch Claude Code</button>}
-              </div>
-            )}
-            {(modes.offload || modes.audit) && modes.claudeAuto && (
-              <div className="mb-2 text-[12px] text-sky-400/80">
-                Automatisch über Claude ({modes.claudeModel}): {modes.offload && 'unbedenkliche Teilaufgaben werden ausgelagert'}{modes.offload && modes.audit && ' · '}{modes.audit && 'das Ergebnis wird am Ende geprüft'}. Kostet API-Gebühren.
-              </div>
+            {(modes.offload || modes.audit) && (
+              modes.apiKey.trim() ? (
+                <div className="mb-2 text-[12px] text-sky-400/80">
+                  Automatisch über Claude ({modes.claudeModel}): {modes.offload && 'unbedenkliche Teilaufgaben werden ausgelagert'}{modes.offload && modes.audit && ' · '}{modes.audit && 'das Ergebnis wird am Ende geprüft'}. Kostet API-Gebühren.
+                </div>
+              ) : (
+                <div className="mb-2 text-[12px] text-amber-400/90">
+                  Für diesen Modus fehlt noch dein Claude-Schlüssel — in Einstellungen → Claude-Verbindung eintragen. Bis dahin passiert nichts Zusätzliches.
+                </div>
+              )
             )}
             {run && !run.turn.done && <Clock startedAt={run.startedAt} chars={produced(run.turn)} thinking={run.turn.text === ''} history={history} />}
             <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
@@ -323,7 +320,6 @@ export default function App() {
       </main>
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      {handoff && <Handoff kind={handoff} onClose={() => setHandoff(null)} onApply={(t) => setInput(t)} />}
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
     </div>
   )

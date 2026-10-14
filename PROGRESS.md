@@ -68,6 +68,11 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 - BUGFIX 2026-10-14 (Audit nach Nutzer-Report „Liste leer trotz ✓ gespeichert"): Ursache war der VERALTETE Companion-Prozess — `start.ps1` startete ihn nur, wenn Port 4097 frei war, also lief nach einem Update der alte Code ohne `GET /skills` weiter; dort fiel `GET /skills` in den SPA-Fallback und lieferte HTML → Liste leer (Speichern via `POST /skills` klappte, weil alt vorhanden). Fix: `start.ps1` beendet den Companion auf 4097 und startet ihn bei JEDEM Start neu (er gehört zur App und ändert sich bei Updates). Zusätzlich: `skills.refresh()` gibt Erreichbarkeit zurück und App fasst bis zu 10×/alle 2 s nach, bis der Companion antwortet; alter Companion (HTML statt Liste) wird als „nicht erreichbar" erkannt. Einstellungen-Update-Hinweis: nach App-Update neu starten.
 - WICHTIG (Architektur, ehrlich): Der Hintergrund-Agent ist das LOKALE Modell (qwen über OpenCode), NICHT Claude Code. „Claude" kommt nur über den bezahlten Offload-Modus ins Spiel. Ordner-Zugriff = Arbeitsverzeichnis des lokalen Agenten.
 
+## Manueller Claude-Weg entfernt — Modi jetzt rein automatisch (2026-10-14)
+- Nutzerwunsch: kein manuelles Eingeben, Auslagerung soll automatisch erkannt/gemacht werden. Daher ENTFERNT: der manuelle Kopieren/Einfügen-Dialog (`HandoffDialog.tsx`, `handoff.ts`, `handoff.test.ts`), der Auto/Manuell-Schalter (`claudeAuto` aus `settings.ts`), die manuellen Knöpfe im Chat.
+- Offload + Audit laufen jetzt IMMER automatisch über die Claude-API, sobald ein Schlüssel hinterlegt ist. Ohne Schlüssel: gelber Hinweis im Chat „Schlüssel in Einstellungen eintragen", sonst passiert nichts (keine Kosten). Einstellungen zeigt nur noch Schlüssel + Modellwahl + Speichern.
+- Einmalige Nutzeraktion: API-Schlüssel in Einstellungen. Danach keine Eingabe pro Aufgabe.
+
 ## Stop-Taste, Automatik-Modi (Claude-API), UI-Fixes (2026-10-14)
 - **Stop/Quadrat:** Läuft eine Antwort, steht statt „Senden" ein quadratischer Stopp-Knopf (bricht serverseitig via `abort(session, workdir)` ab + stoppt die Offline-Vorschau, schließt den Turn mit dem bisher Angekommenen); dient zugleich als Laufen-Anzeige.
 - **Umschalter-Fix:** Knopf hatte keine feste `left`-Startposition → rutschte zu weit rechts. Jetzt `left-0.5` + `translate-x-5` (genau 20 px Weg).

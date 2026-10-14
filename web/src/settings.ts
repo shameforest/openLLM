@@ -19,10 +19,9 @@ interface State extends Modes {
   globalInstructions: string
   apiKey: string
   claudeModel: string
-  claudeAuto: boolean // true = automatic (paid API), false = manual (copy/paste)
   workdir: string // the folder on disk the agent reads/edits/runs in ('' = the server's own folder)
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'claudeAuto' | 'workdir'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'workdir'>>) => void
 }
 
 export const useSettings = create<State>()(
@@ -34,7 +33,6 @@ export const useSettings = create<State>()(
       globalInstructions: '',
       apiKey: '',
       claudeModel: 'claude-opus-5-5',
-      claudeAuto: false,
       workdir: '',
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
       set: (p) => set(p),

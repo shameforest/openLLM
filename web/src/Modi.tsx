@@ -9,12 +9,12 @@ const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
   {
     key: 'offload',
     title: 'Mit Claude beschleunigen',
-    desc: 'Lagert in sich geschlossene, unbedenkliche Teilaufgaben an Claude aus und holt das Ergebnis zurück. Bei „Automatisch" (Einstellungen) geschieht das von selbst über deinen Claude-Schlüssel — kostet API-Gebühren. Bei „Manuell" per Kopieren/Einfügen (kostenlos). Dein Projektzusammenhang und Sensibles bleiben lokal; der lokale Agent entscheidet selbst, welchen harmlosen Teil er abgibt.',
+    desc: 'Lagert automatisch in sich geschlossene, unbedenkliche Teilaufgaben an Claude aus und holt das Ergebnis zurück — ohne Eingabe deinerseits. Der lokale Agent entscheidet selbst, welchen harmlosen Teil er abgibt; dein Projektzusammenhang und Sensibles bleiben lokal. Braucht einen Claude-Schlüssel (Einstellungen) und kostet API-Gebühren.',
   },
   {
     key: 'audit',
     title: 'Claude-Audit (Abschlussprüfung)',
-    desc: 'Lässt den fertigen Code/Text am Ende vom stärksten Claude-Modell (Opus/Sonnet, wählbar in den Einstellungen) prüfen — gezielt auf die typischen Schwächen kleiner Modelle und ob das Ergebnis wirklich lauffähig und fehlerfrei ist. Ein abschließendes Sicherheitsnetz. Bei „Automatisch" läuft die Prüfung von selbst (kostet API-Gebühren), bei „Manuell" per Kopieren/Einfügen.',
+    desc: 'Lässt den fertigen Code/Text am Ende automatisch vom stärksten Claude-Modell (Opus/Sonnet, wählbar in den Einstellungen) prüfen — gezielt auf die typischen Schwächen kleiner Modelle und ob das Ergebnis wirklich lauffähig und fehlerfrei ist. Ein abschließendes Sicherheitsnetz. Braucht einen Claude-Schlüssel und kostet API-Gebühren.',
   },
 ]
 
@@ -38,7 +38,7 @@ export function Modi({ open, onClose }: { open: boolean; onClose: () => void }) 
           ))}
         </div>
         <p className="mt-4 text-[12px] text-ink3">
-          Claude erhält nur in sich geschlossene, unbedenkliche Teile — nie deinen ganzen Zusammenhang. Ob die Übergabe <span className="text-ink2">automatisch</span> (über deinen Claude-Schlüssel, kostet Gebühren) oder <span className="text-ink2">manuell</span> (Kopieren/Einfügen, kostenlos) läuft, stellst du in den Einstellungen unter „Claude-Verbindung" ein. Dort wählst du auch das Modell (Opus/Sonnet).
+          Beide Modi laufen <span className="text-ink2">automatisch über deinen Claude-Schlüssel</span> (Einstellungen → Claude-Verbindung) und kosten API-Gebühren — du musst pro Aufgabe nichts eingeben. Claude erhält dabei nur in sich geschlossene, unbedenkliche Teile, nie deinen ganzen Zusammenhang. Ohne hinterlegten Schlüssel passiert nichts Zusätzliches.
         </p>
         <div className="mt-4 text-right">
           <button className="rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410]" onClick={onClose}>Fertig</button>

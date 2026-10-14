@@ -93,19 +93,16 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
         </Section>
 
         {/* Claude API */}
-        <Section title="Claude-Verbindung (API)" hint="Für die Modi zum Auslagern an Claude und fürs Audit. Kostet Geld — nur bei Automatisch und aktiviertem Modus.">
+        <Section title="Claude-Verbindung (API)" hint="Einmalig deinen Anthropic-Schlüssel eintragen und speichern. Danach laufen die Modi „Mit Claude beschleunigen“ und „Claude-Audit“ automatisch — ohne Eingabe pro Aufgabe. Die Aufrufe kosten API-Gebühren.">
           <input type="password" className="w-full rounded-lg border border-line bg-bg p-2 text-[14px] outline-none"
             placeholder="Anthropic API-Schlüssel (sk-ant-…)" value={s.apiKey} onChange={(e) => s.set({ apiKey: e.target.value })} data-testid="api-key" />
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-ink3">Modell:</span>
             <select className="rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" value={s.claudeModel} onChange={(e) => s.set({ claudeModel: e.target.value })} data-testid="claude-model">
               {CLAUDE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}
             </select>
           </div>
-          <div className="mt-2 flex gap-2">
-            <Choice on={!s.claudeAuto} onClick={() => s.set({ claudeAuto: false })}>Manuell (Kopieren/Einfügen, kostenlos)</Choice>
-            <Choice on={s.claudeAuto} onClick={() => s.set({ claudeAuto: true })}>Automatisch (API, kostet Geld)</Choice>
-          </div>
-          <button className="btn-accent mt-3" onClick={() => run('Claude-Zugang gespeichert', () => companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel, claudeAuto: s.claudeAuto }))} data-testid="save-claude">Speichern</button>
+          <button className="btn-accent mt-3" onClick={() => run('Claude-Zugang gespeichert', () => companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel }))} data-testid="save-claude">Speichern</button>
         </Section>
 
         {/* Projects (GitHub) */}
@@ -206,8 +203,3 @@ function Section({ title, hint, children }: { title: string; hint: string; child
   )
 }
 
-function Choice({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className={`rounded-lg border px-3 py-1.5 text-[13px] ${on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-ink2 hover:bg-user'}`}>{children}</button>
-  )
-}
