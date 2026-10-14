@@ -23,3 +23,5 @@ body {
 }
 textarea { font-family: inherit; }
 .mono { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace; }
+.btn-accent { border-radius: 0.5rem; background: var(--color-accent); color: #1a1410; font-size: 14px; font-weight: 500; padding: 0.375rem 0.75rem; }
+.btn-accent:disabled { opacity: .4; }

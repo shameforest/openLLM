@@ -1,24 +1,41 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-// The three optional modes, each off by default. Persisted so a choice survives restarts.
+// Modes (optional, off by default) + the settings entered in the "Einstellungen" panel. Persisted locally.
 export interface Modes {
-  autopilot: boolean // work the local model in batches with a memory file (batch-autopilot skill)
-  offload: boolean // hand self-contained, benign sub-tasks to Claude Code (manual copy/paste bridge)
-  audit: boolean // let Claude Code review the plan and the finished code, then brief the local model
+  autopilot: boolean
+  offload: boolean
+  audit: boolean
 }
 
-interface SettingsState extends Modes {
+/** Claude models for the paid API offload — IDs from the claude-api reference (Opus 5.5 is the strongest/default). */
+export const CLAUDE_MODELS = [
+  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', note: 'stärkste · ~4 $ / 20 $ pro Mio. Token' },
+  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', note: 'schnell & günstig · ~2 $ / 10 $' },
+  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', note: 'am günstigsten · ~0,10 $ / 0,50 $' },
+]
+
+interface State extends Modes {
+  globalInstructions: string
+  apiKey: string
+  claudeModel: string
+  claudeAuto: boolean // true = automatic (paid API), false = manual (copy/paste)
   toggle: (k: keyof Modes) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'claudeAuto'>>) => void
 }
 
-export const useSettings = create<SettingsState>()(
+export const useSettings = create<State>()(
   persist(
     (set) => ({
       autopilot: false,
       offload: false,
       audit: false,
-      toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<SettingsState>),
+      globalInstructions: '',
+      apiKey: '',
+      claudeModel: 'claude-opus-5-5',
+      claudeAuto: false,
+      toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
+      set: (p) => set(p),
     }),
     { name: 'openllm.modes' },
   ),

@@ -4,6 +4,7 @@ import { type OcEvent, connectEvents, createSession, health, sendPrompt } from '
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { Modi } from './Modi'
+import { Settings } from './Settings'
 import { Handoff, type HandoffKind } from './Handoff'
 
 // The OpenDante desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
@@ -32,6 +33,8 @@ export default function App() {
   const modes = useSettings()
   const modesActive = [modes.autopilot, modes.offload, modes.audit].filter(Boolean).length
   const [modiOpen, setModiOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [plusOpen, setPlusOpen] = useState(false)
   const [handoff, setHandoff] = useState<HandoffKind | null>(null)
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -107,7 +110,10 @@ export default function App() {
     if (online) {
       try {
         if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante')).id
-        await sendPrompt(sessionRef.current, modes.autopilot ? AUTOPILOT_PREFIX + prompt : prompt)
+        let text = modes.autopilot ? AUTOPILOT_PREFIX + prompt : prompt
+        const gi = modes.globalInstructions.trim()
+        if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
+        await sendPrompt(sessionRef.current, text)
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
       }
@@ -130,6 +136,8 @@ export default function App() {
           <span>Modi</span>
           {modesActive > 0 && <span className="rounded-full bg-accent/20 px-2 text-[12px] text-accent">{modesActive} an</span>}
         </button>
+        <button className="mx-3 mb-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
+          onClick={() => setSettingsOpen(true)} data-testid="open-settings">Einstellungen</button>
         <div className="px-4 py-1 text-[11px] uppercase tracking-wider text-ink3">Verlauf</div>
         <div className="flex-1 overflow-y-auto px-3 text-[13px] text-ink3"><p className="px-1 py-2">Noch keine Unterhaltungen.</p></div>
         <div className="border-t border-line px-4 py-3">
@@ -175,6 +183,15 @@ export default function App() {
             )}
             {run && !run.turn.done && <Clock startedAt={run.startedAt} chars={produced(run.turn)} thinking={run.turn.text === ''} history={history} />}
             <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
+              <div className="relative">
+                <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
+                {plusOpen && (
+                  <div className="absolute bottom-11 left-0 z-10 w-56 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
+                    <div className="rounded-lg px-3 py-2 text-ink3">Datei anhängen (bald)</div>
+                    <div className="rounded-lg px-3 py-2 text-ink3">Kontext / Referenz einfügen (bald)</div>
+                  </div>
+                )}
+              </div>
               <textarea className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink3"
                 placeholder="Beschreibe, was gebaut werden soll…" rows={1} value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -189,6 +206,7 @@ export default function App() {
         </div>
       </main>
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {handoff && <Handoff kind={handoff} onClose={() => setHandoff(null)} onApply={(t) => setInput(t)} />}
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
     </div>
