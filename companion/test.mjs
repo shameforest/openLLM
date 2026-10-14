@@ -1,5 +1,5 @@
 // Self-contained check of the companion's file-writing endpoints. Run: node companion/test.mjs
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const cfg = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-'))
+const proj = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-proj-'))
 const PORT = 4096 + Math.floor(Math.random() * 500) + 50
 const srv = spawn(process.execPath, [path.join(HERE, 'server.mjs')], {
-  env: { ...process.env, OPENCODE_CONFIG_DIR: cfg, OPENDANTE_COMPANION_PORT: String(PORT) },
+  env: { ...process.env, OPENCODE_CONFIG_DIR: cfg, OPENDANTE_COMPANION_PORT: String(PORT), OPENDANTE_PROJECTS: proj },
   stdio: 'ignore',
 })
 const base = `http://127.0.0.1:${PORT}`
@@ -37,6 +38,21 @@ try {
   const pf = await post('/pick-folder', {})
   ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
 
+  // Projekte (GitHub)
+  const repos0 = await fetch(base + '/repos').then((r) => r.json())
+  ok(Array.isArray(repos0) && repos0.length === 0, 'GET /repos is empty before cloning')
+  const badClone = await post('/repo/clone', { url: 'https://evil.example.com/x' })
+  ok(badClone.error && /GitHub/i.test(badClone.error), 'clone rejects a non-GitHub url')
+  const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-repo-'))
+  execFileSync('git', ['init', '-q', repo])
+  const st = await post('/git', { path: repo, action: 'status' })
+  ok(st.code === 0, 'git status runs in a real repo')
+  const noRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-norepo-'))
+  const badGit = await post('/git', { path: noRepo, action: 'status' })
+  ok(badGit.error && /Git-Projektordner/.test(badGit.error), 'git action rejects a non-repo folder')
+  await fs.rm(repo, { recursive: true, force: true })
+  await fs.rm(noRepo, { recursive: true, force: true })
+
   await post('/settings', { globalInstructions: 'Neu.', apiKey: '', claudeModel: 'claude-opus-5-5' })
   const agents2 = await fs.readFile(path.join(cfg, 'AGENTS.md'), 'utf8')
   ok((agents2.match(/OPENDANTE-USER-START/g) || []).length === 1 && agents2.includes('Neu.'), 'user block replaced, not duplicated')
@@ -45,6 +61,7 @@ try {
 } finally {
   srv.kill()
   await fs.rm(cfg, { recursive: true, force: true })
+  await fs.rm(proj, { recursive: true, force: true })
 }
 console.log(failed ? `\n${failed} FAILED` : '\nall companion checks passed')
 process.exit(failed ? 1 : 0)

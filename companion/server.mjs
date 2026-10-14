@@ -16,6 +16,7 @@ const DIST = path.join(ROOT, 'web', 'dist')
 const CFG = process.env.OPENCODE_CONFIG_DIR || path.join(os.homedir(), '.config', 'opencode')
 const PORT = Number(process.env.OPENDANTE_COMPANION_PORT || 4097)
 const MODEL = process.env.OPENDANTE_MODEL || 'qwen3.8:27b'
+const PROJECTS = process.env.OPENDANTE_PROJECTS || path.join(os.homedir(), 'OpenDante-Projekte')
 
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }
 const sendJson = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', ...CORS }); res.end(JSON.stringify(obj)) }
@@ -109,6 +110,72 @@ function runUpdate(kind) {
   return { started: true }
 }
 
+// ---- Projekte (GitHub) ----
+// Run a command and collect its output (no shell, so arguments can't inject). Returns { code, out, err }.
+function runCmd(cmd, args, cwd) {
+  return new Promise((resolve) => {
+    let child
+    try { child = spawn(cmd, args, { cwd }) } catch (e) { return resolve({ code: -1, out: '', err: String(e && e.message || e) }) }
+    let out = '', err = ''
+    child.stdout.on('data', (d) => { out += d.toString() })
+    child.stderr.on('data', (d) => { err += d.toString() })
+    child.on('error', (e) => resolve({ code: -1, out, err: String(e && e.message || e) }))
+    child.on('close', (code) => resolve({ code, out: out.trim(), err: err.trim() }))
+  })
+}
+
+// Only accept a plain GitHub https URL, so nothing odd reaches git. Returns the repo name or null.
+function repoName(url) {
+  const m = String(url || '').trim().match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i)
+  if (!m) return null
+  const name = m[2].replace(/[^\w.-]/g, '')
+  return name && name !== '.' && name !== '..' ? name : null
+}
+
+/** Clone a GitHub repo into the projects folder (or pull if it is already there). */
+async function cloneRepo(url) {
+  const name = repoName(url)
+  if (!name) throw new Error('Bitte eine GitHub-Adresse wie https://github.com/benutzer/projekt angeben.')
+  await fs.mkdir(PROJECTS, { recursive: true })
+  const dest = path.join(PROJECTS, name)
+  let hasGit = false
+  try { hasGit = (await fs.stat(path.join(dest, '.git'))).isDirectory() } catch { /* not cloned yet */ }
+  const r = hasGit
+    ? await runCmd('git', ['-C', dest, 'pull', '--ff-only'], dest)
+    : await runCmd('git', ['clone', '--depth', '1', String(url).trim(), dest], PROJECTS)
+  return { ok: r.code === 0, name, path: dest, updated: hasGit, out: r.out, err: r.err }
+}
+
+/** List cloned projects (folders with a .git under the projects folder). */
+async function listRepos() {
+  let names = []
+  try { names = await fs.readdir(PROJECTS) } catch { return [] }
+  const out = []
+  for (const name of names) {
+    const p = path.join(PROJECTS, name)
+    try { if ((await fs.stat(path.join(p, '.git'))).isDirectory()) out.push({ name, path: p }) } catch { /* not a repo */ }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name))
+  return out
+}
+
+/** Run a safe git action in a folder that is a git repo (status / commit / push / pull). */
+async function gitAction(dir, action, message) {
+  const p = path.resolve(String(dir || ''))
+  try { if (!(await fs.stat(path.join(p, '.git'))).isDirectory()) throw new Error() } catch { throw new Error('Das ist kein Git-Projektordner.') }
+  if (action === 'status') return await runCmd('git', ['-C', p, 'status', '--short', '--branch'], p)
+  if (action === 'pull') return await runCmd('git', ['-C', p, 'pull', '--ff-only'], p)
+  if (action === 'push') return await runCmd('git', ['-C', p, 'push'], p)
+  if (action === 'commit') {
+    const msg = String(message || '').trim()
+    if (!msg) throw new Error('Bitte eine Commit-Nachricht angeben.')
+    const add = await runCmd('git', ['-C', p, 'add', '-A'], p)
+    if (add.code !== 0) return add
+    return await runCmd('git', ['-C', p, 'commit', '-m', msg], p)
+  }
+  throw new Error('Unbekannte Git-Aktion.')
+}
+
 // ---- static web UI ----
 async function serveStatic(req, res) {
   let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
@@ -132,6 +199,9 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname === '/health') return sendJson(res, 200, { ok: true, service: 'opendante-companion' })
     if (req.method === 'GET' && url.pathname === '/skills') return sendJson(res, 200, await listSkills())
+    if (req.method === 'GET' && url.pathname === '/repos') return sendJson(res, 200, await listRepos())
+    if (req.method === 'POST' && url.pathname === '/repo/clone') { const b = await readBody(req); return sendJson(res, 200, await cloneRepo(b.url)) }
+    if (req.method === 'POST' && url.pathname === '/git') { const b = await readBody(req); return sendJson(res, 200, await gitAction(b.path, b.action, b.message)) }
     if (req.method === 'POST' && url.pathname === '/settings') {
       const b = await readBody(req)
       await setGlobalInstructions(b.globalInstructions ?? '')

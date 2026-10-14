@@ -60,6 +60,15 @@ export default function App() {
     return () => { alive = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Changing the working folder (from the "+" menu or from Einstellungen) starts a fresh session in the new folder.
+  const prevWorkdir = useRef(modes.workdir)
+  useEffect(() => {
+    if (prevWorkdir.current === modes.workdir) return
+    prevWorkdir.current = modes.workdir
+    sessionRef.current = null
+    setMessages([]); setRun(null)
+  }, [modes.workdir])
+
   // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
   const feed = useCallback((e: OcEvent) => {
     setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: reduceEvent(prev.turn, e) } : prev))
@@ -150,9 +159,7 @@ export default function App() {
     try {
       const r = await companionPost<{ path?: string; note?: string }>('/pick-folder')
       if (r.path) {
-        modes.set({ workdir: r.path })
-        sessionRef.current = null // a new folder starts a fresh session
-        setMessages([]); setRun(null)
+        modes.set({ workdir: r.path }) // the workdir effect starts a fresh session
         setFolderMsg(''); setPlusOpen(false)
       } else {
         setFolderMsg(r.note || 'Keine Auswahl getroffen.')
@@ -247,7 +254,7 @@ export default function App() {
                       Arbeitsordner: <span className="mono break-all text-ink2">{modes.workdir || 'Serverordner (Standard)'}</span>
                     </div>
                     {modes.workdir && (
-                      <button className="w-full rounded-lg px-3 py-1.5 text-left text-ink3 hover:bg-user" onClick={() => { modes.set({ workdir: '' }); sessionRef.current = null; setMessages([]); setRun(null); setPlusOpen(false) }}>↺ Auf Standardordner zurücksetzen</button>
+                      <button className="w-full rounded-lg px-3 py-1.5 text-left text-ink3 hover:bg-user" onClick={() => { modes.set({ workdir: '' }); setPlusOpen(false) }}>↺ Auf Standardordner zurücksetzen</button>
                     )}
                     {folderMsg && <div className="px-3 py-1.5 text-[12px] text-accent">{folderMsg}</div>}
                     <div className="my-1 border-t border-line" />

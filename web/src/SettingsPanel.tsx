@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CLAUDE_MODELS, useSettings } from './settings'
 import { OFFLINE_HINT, companionPost } from './companion'
 import { useSkills } from './skills'
+import { cloneRepo, gitAction, useProjects } from './projects'
 
 // Pull the skill name from the SKILL.md front-matter (`name:` in the --- head); fall back to the file name.
 export function skillNameFrom(content: string, fileName: string): string {
@@ -16,18 +17,46 @@ export function skillNameFrom(content: string, fileName: string): string {
 export function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useSettings()
   const skills = useSkills()
+  const projects = useProjects()
   const [status, setStatus] = useState('')
   const [skill, setSkill] = useState({ name: '', content: '' })
+  const [repoUrl, setRepoUrl] = useState('')
+  const [commitMsg, setCommitMsg] = useState('')
+  const [gitOut, setGitOut] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Refresh the installed-skills list whenever the panel opens.
-  useEffect(() => { if (open) void skills.refresh() }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Refresh the installed skills and cloned projects whenever the panel opens.
+  useEffect(() => { if (open) { void skills.refresh(); void projects.refresh() } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setStatus(`${label}…`)
     try { await fn(); setStatus(`✓ ${label}`) } catch { setStatus(`${label}: ${OFFLINE_HINT}`) }
+  }
+
+  // Clone (or update) a GitHub project and make it the agent's working folder.
+  const doClone = async () => {
+    setStatus('Projekt wird geladen…'); setGitOut('')
+    try {
+      const r = await cloneRepo(repoUrl)
+      if (!r.ok) { setStatus('Klonen fehlgeschlagen'); setGitOut(r.err || r.out || ''); return }
+      await projects.refresh()
+      s.set({ workdir: r.path })
+      setStatus(`✓ „${r.name}" ${r.updated ? 'aktualisiert' : 'geklont'} und als Arbeitsordner gesetzt`)
+      setRepoUrl('')
+    } catch { setStatus(OFFLINE_HINT) }
+  }
+
+  // Run a git action in the active working folder and show its output.
+  const doGit = async (action: 'status' | 'commit' | 'push' | 'pull', message?: string) => {
+    setStatus(`Git: ${action}…`); setGitOut('')
+    try {
+      const r = await gitAction(s.workdir, action, message)
+      setStatus(r.code === 0 ? `✓ Git ${action} erledigt` : `Git ${action}: Fehler`)
+      setGitOut([r.out, r.err].filter(Boolean).join('\n') || '(keine Ausgabe)')
+      if (action === 'commit' && r.code === 0) setCommitMsg('')
+    } catch { setStatus(OFFLINE_HINT) }
   }
 
   // Read one or more chosen .md files and save each as a skill at once — no copy/paste needed.
@@ -79,8 +108,47 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
           <button className="btn-accent mt-3" onClick={() => run('Claude-Zugang gespeichert', () => companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel, claudeAuto: s.claudeAuto }))} data-testid="save-claude">Speichern</button>
         </Section>
 
+        {/* Projects (GitHub) */}
+        <Section title="Projekte (GitHub)" hint="Verbinde ein GitHub-Projekt: OpenDante lädt es herunter (klont es) und arbeitet darin. Zum Bearbeiten brauchst du nur das. „Push“ lädt deine Änderungen zurück zu GitHub (beim ersten Mal fragt Windows nach deinem GitHub-Login).">
+          <div className="flex gap-2">
+            <input className="flex-1 rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" placeholder="https://github.com/benutzer/projekt" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} data-testid="repo-url" />
+            <button className="btn-accent shrink-0" disabled={!repoUrl.trim()} onClick={doClone} data-testid="clone-repo">Klonen / Verbinden</button>
+          </div>
+
+          <div className="mt-3 rounded-lg border border-line bg-bg p-2" data-testid="repo-list">
+            <div className="mb-1 text-[12px] uppercase tracking-wider text-ink3">Deine Projekte</div>
+            {projects.list.length === 0
+              ? <div className="px-1 py-1 text-[13px] text-ink3">{projects.loaded ? 'Noch keine Projekte verbunden.' : 'Wird geladen…'}</div>
+              : <ul className="flex flex-col gap-1">
+                  {projects.list.map((r) => (
+                    <li key={r.path} className="flex items-center justify-between gap-2 rounded-md px-2 py-1">
+                      <div className="min-w-0">
+                        <div className="text-[13px] text-ink2">{r.name}{s.workdir === r.path && <span className="ml-2 text-[12px] text-accent">● aktiv</span>}</div>
+                        <div className="mono break-all text-[11px] text-ink3">{r.path}</div>
+                      </div>
+                      <button className="shrink-0 rounded-md border border-line px-2 py-1 text-[12px] text-ink2 hover:bg-user" onClick={() => s.set({ workdir: r.path })}>Als Arbeitsordner</button>
+                    </li>
+                  ))}
+                </ul>}
+          </div>
+
+          {s.workdir && (
+            <div className="mt-3">
+              <div className="text-[12px] text-ink3">Aktiver Ordner: <span className="mono break-all text-ink2">{s.workdir}</span></div>
+              <input className="mt-2 w-full rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" placeholder="Commit-Nachricht (was wurde geändert?)" value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)} data-testid="commit-msg" />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button className="btn-accent" disabled={!commitMsg.trim()} onClick={() => doGit('commit', commitMsg)} data-testid="git-commit">Committen</button>
+                <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => doGit('push')} data-testid="git-push">Push zu GitHub</button>
+                <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => doGit('status')} data-testid="git-status">Status</button>
+                <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => doGit('pull')} data-testid="git-pull">Pull</button>
+              </div>
+            </div>
+          )}
+          {gitOut && <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-2 text-[12px] text-ink2">{gitOut}</pre>}
+        </Section>
+
         {/* Connectors (placeholder) */}
-        <Section title="Connectoren" hint="Bald: Browser, Datenbank, GitHub u. a. über MCP anbinden.">
+        <Section title="Connectoren" hint="Bald: Browser, Datenbank u. a. über MCP anbinden.">
           <button className="rounded-lg border border-dashed border-line px-3 py-1.5 text-[13px] text-ink3" disabled>+ Connector hinzufügen</button>
         </Section>
 
