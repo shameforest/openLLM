@@ -138,15 +138,21 @@ Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle, Skills) nach $cfg
 # ---- build the web UI (the companion serves it as the app window) ----
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { scoop install nodejs-lts 2>$null; Refresh-Path }
 if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Write-Host "  Oberflaeche wird gebaut ..."
+    Write-Host "  Oberflaeche wird gebaut (kann 1-2 Minuten dauern) ..."
+    $buildLog = Join-Path $Logs "web-build.log"
+    $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"   # the test browser is not needed on this PC
     $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     Push-Location (Join-Path $Root "web")
-    npm install --no-audit --no-fund 2>&1 | Out-Null
-    npm run build 2>&1 | Out-Null
+    npm install --no-audit --no-fund *> $buildLog
+    npm run build *>> $buildLog
     Pop-Location
     $ErrorActionPreference = $old
     if (Test-Path (Join-Path $Root "web\dist\index.html")) { Ok "Oberflaeche gebaut" }
-    else { Write-Host "  Hinweis: Oberflaeche nicht gebaut; der Terminal-Modus (-Terminal) funktioniert trotzdem." -ForegroundColor Yellow }
+    else {
+        Write-Host "  FEHLER beim Bauen der Oberflaeche. Letzte Zeilen ($buildLog):" -ForegroundColor Yellow
+        Get-Content $buildLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+        Write-Host "  (Der Terminal-Modus funktioniert trotzdem: start.ps1 -Terminal.)" -ForegroundColor Yellow
+    }
 } else {
     Write-Host "  Hinweis: Node/npm fehlt; Oberflaeche nicht gebaut." -ForegroundColor Yellow
 }
