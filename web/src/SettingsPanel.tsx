@@ -1,6 +1,13 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { CLAUDE_MODELS, useSettings } from './settings'
 import { OFFLINE_HINT, companionPost } from './companion'
+
+// Pull the skill name from the SKILL.md front-matter (`name:` in the --- head); fall back to the file name.
+export function skillNameFrom(content: string, fileName: string): string {
+  const m = content.match(/^\s*---[\s\S]*?\bname:\s*["']?([^"'\n]+)/)
+  if (m) return m[1].trim()
+  return fileName.replace(/\.(md|markdown)$/i, '').trim()
+}
 
 // The "Einstellungen" panel: global instructions, the Claude API connection (key, model, auto/manual), connectors
 // (placeholder), saving skills, and the two update buttons. Global instructions take effect immediately (prepended to
@@ -9,11 +16,23 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   const s = useSettings()
   const [status, setStatus] = useState('')
   const [skill, setSkill] = useState({ name: '', content: '' })
+  const fileRef = useRef<HTMLInputElement>(null)
   if (!open) return null
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setStatus(`${label}…`)
     try { await fn(); setStatus(`✓ ${label}`) } catch { setStatus(`${label}: ${OFFLINE_HINT}`) }
+  }
+
+  // Read a chosen .md file and save it as a skill at once — no copy/paste needed.
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (e.target) e.target.value = '' // allow re-picking the same file later
+    if (!file) return
+    const content = await file.text()
+    const name = skillNameFrom(content, file.name)
+    setSkill({ name, content }) // show it in the fields too, so the name can still be corrected
+    await run(`Skill „${name}" gespeichert`, () => companionPost('/skills', { name, content }))
   }
 
   return (
@@ -51,7 +70,10 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
 
         {/* Skills */}
         <Section title="Skills" hint="Speichere eigene Skills (SKILL.md). Sie lassen sich über den Chat auslösen. Deine Claude-Code-Skills passen unverändert.">
-          <input className="w-full rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" placeholder="Name (z. B. test-runner)" value={skill.name} onChange={(e) => setSkill({ ...skill, name: e.target.value })} />
+          <input ref={fileRef} type="file" accept=".md,.markdown,text/markdown" className="hidden" onChange={onPickFile} data-testid="skill-file" />
+          <button className="btn-accent" onClick={() => fileRef.current?.click()} data-testid="upload-skill">↑ SKILL.md-Datei hochladen</button>
+          <p className="mt-1.5 text-[12px] text-ink3">Wähle eine <span className="mono">.md</span>-Datei — der Name wird aus ihrem Kopf übernommen und sie wird sofort gespeichert. Oder trage sie unten von Hand ein.</p>
+          <input className="mt-3 w-full rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" placeholder="Name (z. B. test-runner)" value={skill.name} onChange={(e) => setSkill({ ...skill, name: e.target.value })} />
           <textarea className="mt-2 min-h-[72px] w-full rounded-lg border border-line bg-bg p-2 font-mono text-[12px] outline-none" placeholder="Inhalt der SKILL.md (mit --- Kopf ---)…" value={skill.content} onChange={(e) => setSkill({ ...skill, content: e.target.value })} />
           <button className="btn-accent mt-2" disabled={!skill.name.trim() || !skill.content.trim()} onClick={() => run('Skill gespeichert', () => companionPost('/skills', skill))} data-testid="save-skill">Skill speichern</button>
         </Section>
