@@ -5,7 +5,7 @@ Read this first every session. Update it at the end of every session.
 A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assemble + configure OpenCode + Ollama + a local open-weight model; add browser testing and more models; ship with a one-command Windows installer.
 
 ## Status
-**M0 + M1 installed and verified on the Shadow PC** (2026-10-14): OpenCode 1.19.0, Ollama 0.40.4, model `qwen3.8:27b` pulled, config installed to `%USERPROFILE%\.config\opencode`. `opencode debug config` confirms the whole config loads correctly (model, provider, limit 65536/8192, permissions, plan + review agents, /test /review /commit commands). **Next: first autonomous task (plan→edit→run→test).**
+**M1 PROVEN on the Shadow PC** (2026-10-14). Stack installed (OpenCode 1.19.0, Ollama 0.40.4, qwen3.8:27b) and config verified via `opencode debug config`. First autonomous task passed: `opencode run` reached the local model with NO auth prompt, the agent created a file (Write tool) and ran a shell command (`type`, auto-allowed by our permissions) and reported in German. **Next: prove M2 in use — the build/test loop and plan mode on a small real program.**
 
 ## Decisions (see CLAUDE.md / docs for detail)
 - Harness: OpenCode (MIT, anomalyco/opencode) — **pin OpenCode 1.x** (v2 changes the config schema). Server: Ollama (MIT). First model: `qwen3.8:27b` (Apache-2.0, ~18 GB). One model first, blind test later. Local-only, 24 GB, Windows. GPU shared with OpenDali — not at the same time.
@@ -16,8 +16,8 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 
 ## Open / to verify on the Shadow PC
 - RESOLVED 2026-10-14: `scoop install opencode` → 1.19.0 (v2 is a separate package `versions/opencode2`); config loads from `%USERPROFILE%\.config\opencode`; install.ps1 runs end to end. Fixed along the way: a `try`-as-expression crash, the scoop-shims PATH, and the Ollama installer's app menu hijacking the console.
-- OPEN: does OpenCode reach Ollama on the first real model call, or does it first prompt for an auth credential? (Schema lookup suggested a placeholder key may be needed via `opencode auth login`.)
-- OPEN: the first autonomous task (plan→edit→run→test) — the proof that closes M1.
+- RESOLVED 2026-10-14: OpenCode reaches Ollama with NO auth prompt; first autonomous task passed (create file + run command + report). The model shows a "Thinking..." reasoning step (overthinking trait) — consider turning reasoning down if coding feels slow.
+- OPEN: prove the build/test loop (`/test`) and plan mode on a small real program; check whether `python`/`node` are on PATH (if not, add a runtime via scoop).
 - M3: Node.js + enable the Playwright MCP; WSL/Docker sandbox (nested virtualization on Shadow unverified).
 
 ## Files
