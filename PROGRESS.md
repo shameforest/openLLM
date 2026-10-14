@@ -65,6 +65,7 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 - **Seitenleiste:** der „Skills"-Bereich listet die Skills anklickbar; Klick setzt `/slug ` ins Eingabefeld und fokussiert es, Enter sendet. Beim Senden löst `expandSkillCommand` den Befehl auf.
 - Tests gesamt: 29 Vitest (5 Dateien) + Companion-Checks (inkl. GET /skills).
 - EHRLICH offen: ob das lokale Modell den benannten Skill zuverlässig per `skill`-Tool lädt — Konfidenz 60, nur auf dem Shadow-PC prüfbar.
+- BUGFIX 2026-10-14 (Audit nach Nutzer-Report „Liste leer trotz ✓ gespeichert"): Ursache war der VERALTETE Companion-Prozess — `start.ps1` startete ihn nur, wenn Port 4097 frei war, also lief nach einem Update der alte Code ohne `GET /skills` weiter; dort fiel `GET /skills` in den SPA-Fallback und lieferte HTML → Liste leer (Speichern via `POST /skills` klappte, weil alt vorhanden). Fix: `start.ps1` beendet den Companion auf 4097 und startet ihn bei JEDEM Start neu (er gehört zur App und ändert sich bei Updates). Zusätzlich: `skills.refresh()` gibt Erreichbarkeit zurück und App fasst bis zu 10×/alle 2 s nach, bis der Companion antwortet; alter Companion (HTML statt Liste) wird als „nicht erreichbar" erkannt. Einstellungen-Update-Hinweis: nach App-Update neu starten.
 - WICHTIG (Architektur, ehrlich): Der Hintergrund-Agent ist das LOKALE Modell (qwen über OpenCode), NICHT Claude Code. „Claude" kommt nur über den bezahlten Offload-Modus ins Spiel. Ordner-Zugriff = Arbeitsverzeichnis des lokalen Agenten.
 
 ## OpenDante rename + companion service (2026-10-14)

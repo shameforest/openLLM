@@ -8,7 +8,7 @@ export interface SkillInfo { slug: string; name: string; description: string }
 interface SkillsState {
   list: SkillInfo[]
   loaded: boolean
-  refresh: () => Promise<void>
+  refresh: () => Promise<boolean> // true = the companion answered (reachable), false = not reachable yet
 }
 
 export const useSkills = create<SkillsState>((set) => ({
@@ -18,10 +18,13 @@ export const useSkills = create<SkillsState>((set) => ({
     try {
       const r = await fetch(COMPANION + '/skills', { signal: AbortSignal.timeout(2000) })
       if (!r.ok) throw new Error(String(r.status))
-      const list = (await r.json()) as SkillInfo[]
-      set({ list: Array.isArray(list) ? list : [], loaded: true })
+      const body = (await r.json()) as unknown
+      if (!Array.isArray(body)) throw new Error('not a list') // an old companion returns the SPA HTML here
+      set({ list: body as SkillInfo[], loaded: true })
+      return true
     } catch {
       set({ loaded: true }) // companion not running yet — keep whatever we had, stop showing "loading"
+      return false
     }
   },
 }))

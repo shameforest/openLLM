@@ -43,12 +43,15 @@ if ($Terminal) {
 }
 
 # Companion: serves the web UI and runs the settings/updates (port 4097).
-if (-not (Up 4097)) {
-    $node = (Get-Command node -ErrorAction SilentlyContinue).Source
-    if (-not $node) { Note "Node wurde nicht gefunden. Bitte scripts\install.ps1 ausfuehren (oder starte mit -Terminal)."; exit 1 }
-    $env:OPENDANTE_ROOT = $Root
-    Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList (Join-Path $Root "companion\server.mjs") -WorkingDirectory $Root
-}
+# It ships WITH the app and changes on every update, so unlike Ollama/OpenCode we ALWAYS restart it here — otherwise
+# an updated companion keeps running the old code (e.g. a new endpoint stays missing) until the PC reboots.
+$node = (Get-Command node -ErrorAction SilentlyContinue).Source
+if (-not $node) { Note "Node wurde nicht gefunden. Bitte scripts\install.ps1 ausfuehren (oder starte mit -Terminal)."; exit 1 }
+Get-NetTCPConnection -LocalPort 4097 -State Listen -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Milliseconds 300
+$env:OPENDANTE_ROOT = $Root
+Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList (Join-Path $Root "companion\server.mjs") -WorkingDirectory $Root
 
 # Wait for the app to answer, then open it as its own window.
 $deadline = (Get-Date).AddSeconds(30)

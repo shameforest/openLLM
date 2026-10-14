@@ -45,8 +45,20 @@ export default function App() {
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // Load the installed skills once (from the companion) so the sidebar and /commands know them.
-  useEffect(() => { void skills.refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Load the installed skills from the companion. Retry a few times so the list still fills when the companion
+  // (port 4097) finishes starting a moment after this window opens.
+  useEffect(() => {
+    let alive = true
+    let tries = 0
+    const tick = async () => {
+      if (!alive) return
+      const ok = await skills.refresh()
+      if (!alive) return
+      if (!ok && ++tries < 10) window.setTimeout(tick, 2000)
+    }
+    void tick()
+    return () => { alive = false }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
   const feed = useCallback((e: OcEvent) => {

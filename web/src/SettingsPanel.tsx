@@ -114,9 +114,9 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
         </Section>
 
         {/* Updates */}
-        <Section title="Updates" hint="Holt die neueste Version bzw. die neuesten Modelle — wie bei OpenDali.">
+        <Section title="Updates" hint="Holt die neueste Version bzw. die neuesten Modelle — wie bei OpenDali. Nach einem App-Update OpenDante einmal neu starten (Fenster schließen und Desktop-Symbol erneut öffnen), damit die neue Version vollständig greift.">
           <div className="flex flex-wrap gap-2">
-            <button className="btn-accent" onClick={() => run('OpenDante aktualisiert', () => companionPost('/update/app'))} data-testid="update-app">OpenDante aktualisieren (GitHub)</button>
+            <button className="btn-accent" onClick={() => run('OpenDante aktualisiert — bitte neu starten', () => companionPost('/update/app'))} data-testid="update-app">OpenDante aktualisieren (GitHub)</button>
             <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => run('Modelle aktualisiert', () => companionPost('/update/models'))} data-testid="update-models">Modelle aktualisieren</button>
           </div>
         </Section>
