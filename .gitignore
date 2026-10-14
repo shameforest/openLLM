@@ -13,3 +13,4 @@ Thumbs.db
 # Anything the user keeps locally but should not ship
 data/
 *.part
+dist/
