@@ -1,0 +1,15 @@
+# Logs written by the installer and launcher
+logs/
+
+# Local Node / tool state (OpenCode is installed system-wide, not vendored here)
+node_modules/
+.opencode/cache/
+*.local
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Anything the user keeps locally but should not ship
+data/
+*.part
