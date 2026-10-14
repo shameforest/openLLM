@@ -52,5 +52,12 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
   3. **Claude-Code-Audit** — copy/paste handoff to have Claude review plan/code, paste the audit back as a local-model briefing.
 - `handoff.ts` + `settings.ts` unit-tested (20 tests total). Autopilot's prompt effect and the handoff flow still to be tried against a running server on the Shadow PC.
 
+## OpenDante rename + companion service (2026-10-14)
+- Renamed display name openLLM → **OpenDante** everywhere user-facing; kept `C:\openLLM`, the `openllm` repo and localStorage keys so nothing breaks.
+- **Einstellungen panel** (`web/src/Settings.tsx`): global instructions (prepended to every prompt — live now), Claude API (key + model + Auto/Manuell), connectors placeholder, save-skill, two update buttons. `settings.ts` holds the fields. Composer has a `+` button (placeholders).
+- **Companion service** (`companion/server.mjs`, zero-dep Node, port 4097): serves `web/dist` as the app window AND does what the browser can't — `/settings` writes global instructions into OpenCode's AGENTS.md (replaceable block) and the Claude key+model into an `anthropic` provider in opencode.json; `/skills` saves a `SKILL.md`; `/update/app` (git pull + install) and `/update/models` (ollama pull) run on Windows. `companion/test.mjs` passes (6 checks).
+- **Launcher** (`start.ps1`): starts Ollama + `opencode serve` (4096) + the companion (4097), opens Chrome `--app` at the companion = one app window (`-Terminal` for the TUI). **install.ps1** now builds `web/dist` (needs Node, present) and PRESERVES the user's Claude key and global-instructions block across updates.
+- Auto Claude offload path: via OpenCode's `anthropic` provider (key stored by the companion) — paid, only when Automatic + the mode is on. NOT yet run on the Shadow PC.
+
 ## Log
 - 2026-10-14: M0 scaffold + M1 foundation + MIT license pushed. M2 agent config written (opencode.json with the limit/temperature fix, AGENTS.md, review subagent, /review /test /commit commands, permission tiers, plan-mode gate). OpenCode v1.19.0 schema looked up by a `sonnet` agent, reviewed and applied by the main session. Nothing run on Windows/GPU.

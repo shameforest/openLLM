@@ -109,14 +109,47 @@ Step 6 "Konfiguration schreiben und Desktop-Symbol anlegen"
 # VERIFY: OpenCode reads a global config at ~\.config\opencode\opencode.json (XDG-style). Confirm on first run.
 $cfgDir = Join-Path $HOME ".config\opencode"
 New-Item -ItemType Directory -Force -Path $cfgDir, (Join-Path $cfgDir "agents"), (Join-Path $cfgDir "commands"), (Join-Path $cfgDir "skills") | Out-Null
+# opencode.json — keep a user-added Anthropic key (the companion writes it) across updates
+$ocTarget = Join-Path $cfgDir "opencode.json"
+$keepAnthropic = $null
+if (Test-Path $ocTarget) { try { $keepAnthropic = (Get-Content -Raw $ocTarget | ConvertFrom-Json).provider.anthropic } catch {} }
 Copy-Item -Force (Join-Path $Root "config\opencode.json") $cfgDir
+if ($keepAnthropic) {
+    $oc = Get-Content -Raw $ocTarget | ConvertFrom-Json
+    $oc.provider | Add-Member -NotePropertyName anthropic -NotePropertyValue $keepAnthropic -Force
+    $oc | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $ocTarget
+}
+# AGENTS.md — keep the user's global-instructions block (the companion writes it) across updates
+$agTarget = Join-Path $cfgDir "AGENTS.md"
+$userBlock = ""
+if (Test-Path $agTarget) {
+    $m = [regex]::Match((Get-Content -Raw $agTarget), '(?s)<!-- OPENDANTE-USER-START -->.*?<!-- OPENDANTE-USER-END -->')
+    if ($m.Success) { $userBlock = "`r`n`r`n" + $m.Value + "`r`n" }
+}
 Copy-Item -Force (Join-Path $Root "config\AGENTS.md") $cfgDir
+if ($userBlock) { Add-Content -Encoding UTF8 $agTarget $userBlock }
 Copy-Item -Force (Join-Path $Root "config\agents\*.md") (Join-Path $cfgDir "agents")
 Copy-Item -Force (Join-Path $Root "config\commands\*.md") (Join-Path $cfgDir "commands")
 # Skills (each a folder with SKILL.md); the one shipped is batch-autopilot. Your own Claude Code skills from
 # .claude/skills in a project also work unchanged, so they do not need to be copied here.
 Copy-Item -Recurse -Force (Join-Path $Root "skills\*") (Join-Path $cfgDir "skills")
 Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle, Skills) nach $cfgDir kopiert"
+
+# ---- build the web UI (the companion serves it as the app window) ----
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { scoop install nodejs-lts 2>$null; Refresh-Path }
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Write-Host "  Oberflaeche wird gebaut ..."
+    $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    Push-Location (Join-Path $Root "web")
+    npm install --no-audit --no-fund 2>&1 | Out-Null
+    npm run build 2>&1 | Out-Null
+    Pop-Location
+    $ErrorActionPreference = $old
+    if (Test-Path (Join-Path $Root "web\dist\index.html")) { Ok "Oberflaeche gebaut" }
+    else { Write-Host "  Hinweis: Oberflaeche nicht gebaut; der Terminal-Modus (-Terminal) funktioniert trotzdem." -ForegroundColor Yellow }
+} else {
+    Write-Host "  Hinweis: Node/npm fehlt; Oberflaeche nicht gebaut." -ForegroundColor Yellow
+}
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shell = New-Object -ComObject WScript.Shell
