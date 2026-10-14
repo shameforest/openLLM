@@ -5,7 +5,8 @@ Read this first every session. Update it at the end of every session.
 A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assemble + configure OpenCode + Ollama + a local open-weight model; add browser testing and more models; ship with a one-command Windows installer.
 
 ## Status
-**M1 PROVEN on the Shadow PC** (2026-10-14). Stack installed (OpenCode 1.19.0, Ollama 0.40.4, qwen3.8:27b) and config verified via `opencode debug config`. First autonomous task passed: `opencode run` reached the local model with NO auth prompt, the agent created a file (Write tool) and ran a shell command (`type`, auto-allowed by our permissions) and reported in German. **Next: prove M2 in use — the build/test loop and plan mode on a small real program.**
+**M1 + M2 core PROVEN on the Shadow PC** (2026-10-14): OpenCode 1.19.0 + Ollama 0.40.4 + qwen3.8:27b. Tasks passed via `opencode run` (no auth prompt): created files, ran commands under our permissions, and built `rechner.py` + `test_rechner.py` and ran the test to "TEST OK" — the full build→run→test loop, autonomous, in German. Python 3.12 and Node 24 are present on the Shadow PC.
+**Desktop UI MVP built (`web/`):** a Claude-like React/Vite/Tailwind app over the OpenCode server (REST + SSE `GET /event`), the two time readouts (elapsed + adaptive estimate), tool-call chips, online/offline awareness with a simulated-answer fallback so the window is never dead. Builds clean; **17 unit tests** (eta + stream reducer). **NOT yet tested against a running `opencode serve`** — next Shadow step.
 
 ## Decisions (see CLAUDE.md / docs for detail)
 - Harness: OpenCode (MIT, anomalyco/opencode) — **pin OpenCode 1.x** (v2 changes the config schema). Server: Ollama (MIT). First model: `qwen3.8:27b` (Apache-2.0, ~18 GB). One model first, blind test later. Local-only, 24 GB, Windows. GPU shared with OpenDali — not at the same time.
@@ -18,7 +19,21 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 - RESOLVED 2026-10-14: `scoop install opencode` → 1.19.0 (v2 is a separate package `versions/opencode2`); config loads from `%USERPROFILE%\.config\opencode`; install.ps1 runs end to end. Fixed along the way: a `try`-as-expression crash, the scoop-shims PATH, and the Ollama installer's app menu hijacking the console.
 - RESOLVED 2026-10-14: OpenCode reaches Ollama with NO auth prompt; first autonomous task passed (create file + run command + report). The model shows a "Thinking..." reasoning step (overthinking trait) — consider turning reasoning down if coding feels slow.
 - OPEN: prove the build/test loop (`/test`) and plan mode on a small real program; check whether `python`/`node` are on PATH (if not, add a runtime via scoop).
-- M3: Node.js + enable the Playwright MCP; WSL/Docker sandbox (nested virtualization on Shadow unverified).
+- M3: Node.js (present!) + enable the Playwright MCP; WSL/Docker sandbox (nested virtualization on Shadow unverified).
+
+## OpenCode server API (verified 2026-10-14 via sonnet lookup, confidence 85)
+- `opencode serve` → http://127.0.0.1:4096, no auth on localhost, CORS open to localhost:*. Health `GET /global/health`.
+- `POST /session {title}` (pass a title to skip the hidden title LLM call) → `{id}`. `POST /session/{id}/prompt_async` body `{agent, model:{providerID:"ollama", modelID:"qwen3.8:27b"}, parts:[{type:"text",text}]}` → 204. `POST /session/{id}/abort`.
+- Stream: SSE `GET /event`. Events: `message.part.delta {field:"text"|"reasoning", delta}`; `message.part.updated {part:{type:"tool", state:{status}}}`; `message.updated {info.tokens}`; `session.idle`/`session.status{type:"idle"}` end the turn; `session.error`; `permission.asked`→`POST /permission/{id}/reply`. NO live token count (timers use characters instead). → `web/src/api.ts`, `web/src/stream.ts`.
+- SDK alt: `@opencode-ai/sdk/v2/client` (we use raw fetch/EventSource instead).
+
+## Skills (verified) — good news
+- Claude Code skills load UNCHANGED from `.claude/skills/<name>/SKILL.md` (project walk-up and `~`). Also `~/.config/opencode/skills/<name>/SKILL.md`. Format = SKILL.md + YAML frontmatter `name`,`description`. The model calls tool `skill({name})`. So "skill upload" = drop a skill folder into one of those dirs (UI for this is a later step; needs a tiny file-write helper since the browser can't write the FS directly).
+
+## UI — open
+- Test `web/` against a running `opencode serve` on the Shadow PC (serve the built app; point it at 127.0.0.1:4096).
+- Decide how the app is served/launched on Windows (static serve + desktop shortcut, like OpenDali).
+- Then: sessions list (persist + resume), skill-upload UI, richer tool/diff view, plan-mode approval in the UI.
 
 ## Files
 - Docs: `CLAUDE.md`, `README.md`, `LICENSE` (MIT), `.gitignore`, `docs/PLAN.md`, `docs/RESEARCH.md`, `docs/SETUP.md`
