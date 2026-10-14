@@ -108,12 +108,15 @@ if ($SkipModel) {
 Step 6 "Konfiguration schreiben und Desktop-Symbol anlegen"
 # VERIFY: OpenCode reads a global config at ~\.config\opencode\opencode.json (XDG-style). Confirm on first run.
 $cfgDir = Join-Path $HOME ".config\opencode"
-New-Item -ItemType Directory -Force -Path $cfgDir, (Join-Path $cfgDir "agents"), (Join-Path $cfgDir "commands") | Out-Null
+New-Item -ItemType Directory -Force -Path $cfgDir, (Join-Path $cfgDir "agents"), (Join-Path $cfgDir "commands"), (Join-Path $cfgDir "skills") | Out-Null
 Copy-Item -Force (Join-Path $Root "config\opencode.json") $cfgDir
 Copy-Item -Force (Join-Path $Root "config\AGENTS.md") $cfgDir
 Copy-Item -Force (Join-Path $Root "config\agents\*.md") (Join-Path $cfgDir "agents")
 Copy-Item -Force (Join-Path $Root "config\commands\*.md") (Join-Path $cfgDir "commands")
-Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle) nach $cfgDir kopiert"
+# Skills (each a folder with SKILL.md); the one shipped is batch-autopilot. Your own Claude Code skills from
+# .claude/skills in a project also work unchanged, so they do not need to be copied here.
+Copy-Item -Recurse -Force (Join-Path $Root "skills\*") (Join-Path $cfgDir "skills")
+Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle, Skills) nach $cfgDir kopiert"
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shell = New-Object -ComObject WScript.Shell
