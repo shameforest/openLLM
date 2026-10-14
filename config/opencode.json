@@ -1,19 +1,43 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "_note": "openLLM default config. Installed to the user's OpenCode config dir by scripts/install.ps1. Points OpenCode at the local Ollama server (OpenAI-compatible endpoint). Add more local models under provider.ollama.models as they are pulled. Verified 2026-10-14 against OpenCode's self-hosted-model docs; confirm key names against the installed OpenCode version.",
+  "_note": "openLLM default OpenCode config. Installed to ~/.config/opencode/ by scripts/install.ps1. Verified 2026-10-14 against OpenCode v1.19.0 docs/source. Pin OpenCode 1.x: OpenCode 2 changes this schema. limit.context/output MUST be set (they default to 0); temperature must be true for agents to set it.",
+  "model": "ollama/qwen3.8:27b",
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Ollama (local)",
-      "options": {
-        "baseURL": "http://localhost:11434/v1"
-      },
+      "options": { "baseURL": "http://localhost:11434/v1" },
       "models": {
         "qwen3.8:27b": {
-          "name": "Qwen3.8 27B (local)"
+          "name": "Qwen3.8 27B (local)",
+          "temperature": true,
+          "limit": { "context": 65536, "output": 8192 }
         }
       }
     }
   },
-  "model": "ollama/qwen3.8:27b"
+  "mcp": {
+    "playwright": { "type": "local", "command": ["npx", "@playwright/mcp@latest"], "enabled": false }
+  },
+  "permission": {
+    "edit": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "bash": {
+      "*": "ask",
+      "ls*": "allow", "dir*": "allow", "cat *": "allow", "type *": "allow", "grep *": "allow", "rg *": "allow", "find *": "allow", "echo *": "allow",
+      "git status": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git add*": "allow", "git commit*": "allow", "git branch*": "allow", "git checkout -b*": "allow",
+      "npm *": "allow", "npx *": "allow", "node *": "allow", "pnpm *": "allow", "python *": "allow", "py *": "allow", "pytest*": "allow", "pip *": "allow", "uv *": "allow", "cargo *": "allow", "go *": "allow",
+      "git push*": "ask", "git reset --hard*": "ask", "git clean*": "ask",
+      "rm *": "deny", "del *": "deny", "rmdir *": "deny", "Remove-Item*": "deny", "format *": "deny", "mkfs*": "deny"
+    }
+  },
+  "agent": {
+    "plan": {
+      "permission": {
+        "edit": "deny",
+        "bash": { "*": "ask", "git diff*": "allow", "git log*": "allow", "git status": "allow", "grep *": "allow", "rg *": "allow", "cat *": "allow", "ls*": "allow" }
+      }
+    }
+  }
 }

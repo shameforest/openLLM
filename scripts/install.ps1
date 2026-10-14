@@ -81,7 +81,9 @@ Step 4 "Ollama fuer Programmieren einstellen"
 [Environment]::SetEnvironmentVariable("OLLAMA_CONTEXT_LENGTH", "65536", "User")
 [Environment]::SetEnvironmentVariable("OLLAMA_KV_CACHE_TYPE", "q8_0", "User")
 [Environment]::SetEnvironmentVariable("OLLAMA_FLASH_ATTENTION", "1", "User")
-Ok "Kontext 65536, KV-Cache q8_0 gesetzt (wirkt nach Neustart von Ollama)"
+# OpenCode: a formal plan-then-approve gate (experimental in v1.x, CLII client only). Remove if it misbehaves.
+[Environment]::SetEnvironmentVariable("OPENCODE_EXPERIMENTAL_PLAN_MODE", "1", "User")
+Ok "Kontext 65536, KV-Cache q8_0, Plan-Modus gesetzt (wirkt nach Neustart von Ollama/OpenCode)"
 
 # 5 -------------------------------------------------------------- the model
 Step 5 "Modell herunterladen ($Model, ca. 18 GB)"
@@ -98,9 +100,12 @@ if ($SkipModel) {
 Step 6 "Konfiguration schreiben und Desktop-Symbol anlegen"
 # VERIFY: OpenCode reads a global config at ~\.config\opencode\opencode.json (XDG-style). Confirm on first run.
 $cfgDir = Join-Path $HOME ".config\opencode"
-New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
-Copy-Item -Force (Join-Path $Root "config\opencode.json") (Join-Path $cfgDir "opencode.json")
-Ok "opencode.json nach $cfgDir kopiert"
+New-Item -ItemType Directory -Force -Path $cfgDir, (Join-Path $cfgDir "agents"), (Join-Path $cfgDir "commands") | Out-Null
+Copy-Item -Force (Join-Path $Root "config\opencode.json") $cfgDir
+Copy-Item -Force (Join-Path $Root "config\AGENTS.md") $cfgDir
+Copy-Item -Force (Join-Path $Root "config\agents\*.md") (Join-Path $cfgDir "agents")
+Copy-Item -Force (Join-Path $Root "config\commands\*.md") (Join-Path $cfgDir "commands")
+Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle) nach $cfgDir kopiert"
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shell = New-Object -ComObject WScript.Shell

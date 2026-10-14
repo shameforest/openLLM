@@ -2,33 +2,32 @@
 Read this first every session. Update it at the end of every session.
 
 ## Goal
-A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assemble + configure OpenCode + Ollama + a local open-weight model; add web search, browser testing and more models; ship with a one-command Windows installer.
+A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assemble + configure OpenCode + Ollama + a local open-weight model; add browser testing and more models; ship with a one-command Windows installer.
 
 ## Status
-**M0 done** (research + plan + scaffold). **M1 in progress** — installer, config and launcher written; not yet run on Windows.
+**M0 done** (research, plan, scaffold). **M1 foundation + M2 agent config written** — not yet run on Windows.
 
 ## Decisions (see CLAUDE.md / docs for detail)
-- Harness: extend OpenCode (MIT, anomalyco/opencode). Server: Ollama (MIT). First model: **qwen3.8:27b** (Apache-2.0, ~18 GB). One model first, blind test later. Local-only, 24 GB, Windows. GPU shared with OpenDali — not at the same time.
+- Harness: OpenCode (MIT, anomalyco/opencode) — **pin OpenCode 1.x** (v2 changes the config schema). Server: Ollama (MIT). First model: `qwen3.8:27b` (Apache-2.0, ~18 GB). One model first, blind test later. Local-only, 24 GB, Windows. GPU shared with OpenDali — not at the same time.
 
-## Verified 2026-10-14 (main session, via WebSearch/WebFetch)
-- Model exists; Ollama tag `qwen3.8:27b` (~18 GB Q4_K_M, runs on 24 GB). Released 14 Aug 2026, Apache-2.0. **Benchmarks are Alibaba-reported, not independently replicated.** Confirm the official ollama.com/library page + LICENSE on download day (ollama.com was not directly reachable from the cloud).
-- OpenCode install on Windows: `scoop install opencode` (also choco / `npm i -g @opencode/cli@latest`). Repo renamed sst→anomalyco.
-- OpenCode local model: a `provider.ollama` block with `npm: @ai-sdk/openai-compatible` and `options.baseURL: http://localhost:11434/v1` → `config/opencode.json`.
+## Verified 2026-10-14 (main session + sonnet lookup, reviewed)
+- Model: Ollama tag `qwen3.8:27b` (~18 GB Q4_K_M, Apache-2.0). Benchmarks are Alibaba-reported, not independent. Confirm the official page + LICENSE on download day.
+- OpenCode v1.19.0 schema (confidence ~90, nothing run): config at `~/.config/opencode/opencode.json` (global) + project root; `$schema=https://opencode.ai/config.json`; model `provider/model`. **Trap: `limit.context`/`limit.output` default to 0 → set both; `temperature` defaults false → set `true`.** Instructions file is `AGENTS.md` (CLAUDE.md only a fallback). Agents in `~/.config/opencode/agents/*.md` (YAML frontmatter + body); commands in `commands/*.md` with `$ARGUMENTS`, `!` for shell injection, `@` for files. Permissions: key `permission`, values allow/ask/deny, per-tool + bash per-pattern, last match wins (put `*` first). Plan vs build: built-in `plan`/`build` agents, Tab to switch; formal approval gate via `OPENCODE_EXPERIMENTAL_PLAN_MODE=1`. Ollama /v1 can't set context → `OLLAMA_CONTEXT_LENGTH` env (set to 65536).
 
 ## Open / to verify on the Shadow PC
-- OpenCode's exact global config path (assumed `~/.config/opencode/opencode.json`).
-- Whether `scoop install opencode` / `scoop` bootstrap and the silent OllamaSetup.exe run work as written (all untested on Windows).
-- Ollama env vars take effect (context 65536, kv q8_0) — check `ollama ps` for CPU spill.
-- WSL/Docker availability for the M3 sandbox (nested virtualization on Shadow unverified).
+- **`scoop install opencode` version — must be 1.x, not 2.** If it installs OpenCode 2, pin via npm `opencode-ai@1.19.0` (needs Node) — exact npm package name still to confirm (@opencode/cli vs opencode-ai).
+- OpenCode config path on Windows (`%USERPROFILE%\.config\opencode\`) and that the config is picked up (`opencode debug config`).
+- Node.js for the Playwright MCP (currently `enabled:false`; enable in M3 after installing Node).
+- Whether the experimental plan-mode gate behaves; OllamaSetup silent flags; Scoop bootstrap. All untested on Windows.
 
-## Files so far
-- `CLAUDE.md`, `README.md`, `docs/PLAN.md`, `docs/RESEARCH.md`, `docs/SETUP.md`
-- `config/opencode.json` (valid JSON, verified structure)
-- `scripts/install.ps1` (Scoop → OpenCode; OllamaSetup → Ollama; env vars; model pull; config copy; desktop shortcut)
-- `scripts/start.ps1` (warns if OpenDali holds the GPU; starts Ollama; opens OpenCode TUI)
+## Files
+- Docs: `CLAUDE.md`, `README.md`, `LICENSE` (MIT), `.gitignore`, `docs/PLAN.md`, `docs/RESEARCH.md`, `docs/SETUP.md`
+- Config (installed to ~/.config/opencode/): `config/opencode.json` (model + provider + mcp + permission + plan agent), `config/AGENTS.md`, `config/agents/review.md`, `config/commands/{review,test,commit}.md` — all validated (JSON + YAML frontmatter).
+- Scripts: `scripts/install.ps1` (Scoop→OpenCode, OllamaSetup→Ollama, env vars incl. plan mode, model pull, config tree copy, shortcut), `scripts/start.ps1`.
 
 ## Next step
-User runs `scripts/install.ps1` on the Shadow PC and sends the log + a screenshot. Fix what breaks (likely: OpenCode config path, Ollama install flags). Then finish M1: a first autonomous mini-task with proof (e.g. "build a small script", agent plans/edits/runs/tests).
+1. User runs `scripts/install.ps1` on the Shadow PC → send log + `opencode --version` + a screenshot. Confirm OpenCode is 1.x and the config loads.
+2. Then M1 proof: a first autonomous mini-task (agent plans → edits → runs → tests). Then M3: Node + enable Playwright MCP, sandbox check (WSL/Docker), image input.
 
 ## Log
-- 2026-10-14: Repo created (empty). M0 scaffold (CLAUDE.md, PLAN, RESEARCH) pushed to `main`. M1 foundation written (installer, config, launcher, SETUP). OpenCode identity + install, model tag, and local-provider config verified by the main session. Research delegated to two `sonnet` agents; synthesis/plan/verification by the main session. Nothing run on Windows/GPU yet (no such hardware in the cloud).
+- 2026-10-14: M0 scaffold + M1 foundation + MIT license pushed. M2 agent config written (opencode.json with the limit/temperature fix, AGENTS.md, review subagent, /review /test /commit commands, permission tiers, plan-mode gate). OpenCode v1.19.0 schema looked up by a `sonnet` agent, reviewed and applied by the main session. Nothing run on Windows/GPU.
