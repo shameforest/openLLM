@@ -58,6 +58,9 @@ try {
   ok((agents2.match(/OPENDANTE-USER-START/g) || []).length === 1 && agents2.includes('Neu.'), 'user block replaced, not duplicated')
   const oc2 = JSON.parse(await fs.readFile(path.join(cfg, 'opencode.json'), 'utf8'))
   ok(!oc2.provider.anthropic, 'empty key removes the anthropic provider')
+
+  const noKey = await post('/claude', { prompt: 'hallo' })
+  ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')
 } finally {
   srv.kill()
   await fs.rm(cfg, { recursive: true, force: true })

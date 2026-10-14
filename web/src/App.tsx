@@ -5,6 +5,7 @@ import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './st
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { companionPost } from './companion'
 import { expandSkillCommand, useSkills } from './skills'
+import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks } from './claude'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 import { Handoff, type HandoffKind } from './HandoffDialog'
@@ -13,7 +14,7 @@ import { Handoff, type HandoffKind } from './HandoffDialog'
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
 // simulated answer so the window is never dead — the same render path is used either way.
 
-interface Msg { role: 'user' | 'assistant'; text: string; tools?: ToolCall[]; error?: string | null }
+interface Msg { role: 'user' | 'assistant'; text: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude'; pending?: boolean }
 
 const KEY = 'openllm.samples'
 const DEMO = (
@@ -102,6 +103,7 @@ export default function App() {
     if (!run || !run.turn.done) return
     const t = run.turn
     setMessages((m) => [...m, { role: 'assistant', text: t.text, tools: t.tools, error: t.error }])
+    if (!t.error && t.text.trim() && modes.claudeAuto && (modes.offload || modes.audit)) void postProcessClaude(t.text)
     if (!t.error && produced(t) > 0) {
       const next = [...history, { ms: Date.now() - run.startedAt, tokens: produced(t) }].slice(-20)
       setHistory(next)
@@ -140,7 +142,9 @@ export default function App() {
       try {
         if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante', modes.workdir)).id
         const asked = expandSkillCommand(prompt, skills.list) // turn a /skillname command into a skill instruction
-        let text = modes.autopilot ? AUTOPILOT_PREFIX + asked : asked
+        let text = asked
+        if (modes.autopilot) text = AUTOPILOT_PREFIX + text
+        if (modes.offload && modes.claudeAuto) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         await sendPrompt(sessionRef.current, text, modes.workdir)
@@ -154,6 +158,26 @@ export default function App() {
 
   // Stop the running answer: abort it on the server (and the fallback simulator), then finish the turn locally so the
   // transcript keeps what arrived so far.
+  // Replace the current pending Claude placeholder with its final text (sequential, so at most one is pending).
+  const finishClaude = (final: Msg) =>
+    setMessages((m) => { const i = m.findIndex((x) => x.pending); if (i < 0) return [...m, final]; const c = [...m]; c[i] = final; return c })
+
+  // After a local answer: (auto) send marked subtasks to Claude, and/or have Claude audit the whole result. Paid API.
+  async function postProcessClaude(text: string) {
+    if (modes.offload) {
+      for (const task of offloadTasks(text)) {
+        setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '↗ Claude bearbeitet eine Teilaufgabe …', pending: true }])
+        try { const r = await claudeOffload(task, modes.claudeModel); finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` }) }
+        catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
+      }
+    }
+    if (modes.audit) {
+      setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '🔍 Claude prüft das Ergebnis …', pending: true }])
+      try { const r = await claudeAudit(text, modes.claudeModel); finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` }) }
+      catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
+    }
+  }
+
   async function stopRun() {
     simRef.current() // stop the offline preview if it is the one running
     if (sessionRef.current) await abort(sessionRef.current, modes.workdir)
@@ -245,10 +269,16 @@ export default function App() {
 
         <div className="border-t border-line bg-bg px-6 py-4">
           <div className="mx-auto max-w-[760px]">
-            {(modes.offload || modes.audit) && (
-              <div className="mb-2 flex flex-wrap gap-2">
+            {(modes.offload || modes.audit) && !modes.claudeAuto && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="text-[12px] text-ink3">Manuell (kostenlos):</span>
                 {modes.offload && <button className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink2 hover:bg-user" onClick={() => setHandoff('offload')} data-testid="btn-offload">↗ Teilaufgabe an Claude Code</button>}
                 {modes.audit && <button className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink2 hover:bg-user" onClick={() => setHandoff('audit')} data-testid="btn-audit">🔍 Audit durch Claude Code</button>}
+              </div>
+            )}
+            {(modes.offload || modes.audit) && modes.claudeAuto && (
+              <div className="mb-2 text-[12px] text-sky-400/80">
+                Automatisch über Claude ({modes.claudeModel}): {modes.offload && 'unbedenkliche Teilaufgaben werden ausgelagert'}{modes.offload && modes.audit && ' · '}{modes.audit && 'das Ergebnis wird am Ende geprüft'}. Kostet API-Gebühren.
               </div>
             )}
             {run && !run.turn.done && <Clock startedAt={run.startedAt} chars={produced(run.turn)} thinking={run.turn.text === ''} history={history} />}
@@ -303,9 +333,10 @@ function Bubble({ m, live = false, thinking = false }: { m: Msg; live?: boolean;
   if (m.role === 'user') {
     return <div className="self-end"><div className="max-w-[560px] rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>
   }
+  const isClaude = m.kind === 'claude'
   return (
     <div className="max-w-[640px] self-start">
-      <div className="mb-1 text-[12px] font-medium text-accent">OpenDante</div>
+      <div className={`mb-1 text-[12px] font-medium ${isClaude ? 'text-sky-400' : 'text-accent'}`}>{isClaude ? 'Claude (bezahlt)' : 'OpenDante'}</div>
       {m.tools && m.tools.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {m.tools.map((t) => (

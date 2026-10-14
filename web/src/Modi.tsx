@@ -8,13 +8,13 @@ const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
   },
   {
     key: 'offload',
-    title: 'Mit Claude Code beschleunigen',
-    desc: 'Gibt einzelne, in sich geschlossene Teilaufgaben an Claude Code ab (per Kopieren/Einfügen, kein Konto nötig). Dein Projektzusammenhang bleibt lokal — nur die harmlose Teilaufgabe wird übergeben, sensible Arbeit bleibt bei OpenDante.',
+    title: 'Mit Claude beschleunigen',
+    desc: 'Lagert in sich geschlossene, unbedenkliche Teilaufgaben an Claude aus und holt das Ergebnis zurück. Bei „Automatisch" (Einstellungen) geschieht das von selbst über deinen Claude-Schlüssel — kostet API-Gebühren. Bei „Manuell" per Kopieren/Einfügen (kostenlos). Dein Projektzusammenhang und Sensibles bleiben lokal; der lokale Agent entscheidet selbst, welchen harmlosen Teil er abgibt.',
   },
   {
     key: 'audit',
-    title: 'Claude-Code-Audit',
-    desc: 'Lässt Plan (am Anfang) und fertigen Code (am Ende) von Claude Code prüfen. Du kopierst die Prüf-Anfrage dorthin und fügst die Verbesserungen zurück ein — OpenDante setzt die sinnvollen Punkte automatisch um.',
+    title: 'Claude-Audit (Abschlussprüfung)',
+    desc: 'Lässt den fertigen Code/Text am Ende vom stärksten Claude-Modell (Opus/Sonnet, wählbar in den Einstellungen) prüfen — gezielt auf die typischen Schwächen kleiner Modelle und ob das Ergebnis wirklich lauffähig und fehlerfrei ist. Ein abschließendes Sicherheitsnetz. Bei „Automatisch" läuft die Prüfung von selbst (kostet API-Gebühren), bei „Manuell" per Kopieren/Einfügen.',
   },
 ]
 
@@ -38,7 +38,7 @@ export function Modi({ open, onClose }: { open: boolean; onClose: () => void }) 
           ))}
         </div>
         <p className="mt-4 text-[12px] text-ink3">
-          Claude Code erhält nur in sich geschlossene, unbedenkliche Teilaufgaben — nie den ganzen Zusammenhang. Es gibt keine automatische Verbindung; die Übergabe läuft bewusst über Kopieren/Einfügen, du siehst also immer genau, was übergeben wird.
+          Claude erhält nur in sich geschlossene, unbedenkliche Teile — nie deinen ganzen Zusammenhang. Ob die Übergabe <span className="text-ink2">automatisch</span> (über deinen Claude-Schlüssel, kostet Gebühren) oder <span className="text-ink2">manuell</span> (Kopieren/Einfügen, kostenlos) läuft, stellst du in den Einstellungen unter „Claude-Verbindung" ein. Dort wählst du auch das Modell (Opus/Sonnet).
         </p>
         <div className="mt-4 text-right">
           <button className="rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410]" onClick={onClose}>Fertig</button>

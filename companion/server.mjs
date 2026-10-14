@@ -176,6 +176,32 @@ async function gitAction(dir, action, message) {
   throw new Error('Unbekannte Git-Aktion.')
 }
 
+// ---- Claude-API-Brücke (bezahlt) ----
+// Read the stored Anthropic key + model from OpenCode's config (written by the Einstellungen panel).
+async function readAnthropic() {
+  try {
+    const cfg = JSON.parse(await fs.readFile(path.join(CFG, 'opencode.json'), 'utf8'))
+    const a = cfg.provider && cfg.provider.anthropic
+    return { key: a && a.options && a.options.apiKey, model: a && a.models ? Object.keys(a.models)[0] : null }
+  } catch { return {} }
+}
+
+/** One call to the Claude Messages API with the stored key. Used by the auto offload/audit modes. */
+async function callClaude({ system, prompt, model }) {
+  const stored = await readAnthropic()
+  if (!stored.key) throw new Error('Kein Claude-Schlüssel gespeichert (Einstellungen → Claude-Verbindung → Speichern).')
+  const useModel = model || stored.model || 'claude-opus-5-5'
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': stored.key, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: useModel, max_tokens: 4096, system: system || '', messages: [{ role: 'user', content: String(prompt || '') }] }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error((j && j.error && j.error.message) || `Claude-API Fehler ${r.status}`)
+  const text = Array.isArray(j.content) ? j.content.filter((c) => c.type === 'text').map((c) => c.text).join('') : ''
+  return { text, model: useModel }
+}
+
 // ---- static web UI ----
 async function serveStatic(req, res) {
   let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
@@ -214,6 +240,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, slug })
     }
     if (req.method === 'POST' && url.pathname === '/pick-folder') return sendJson(res, 200, await pickFolder())
+    if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
     if (req.method === 'POST' && url.pathname === '/update/models') return sendJson(res, 200, runUpdate('models'))
     if (req.method === 'GET') return serveStatic(req, res)
