@@ -6,7 +6,7 @@ describe('handoff briefings', () => {
     const b = offloadBriefing('  Schreibe eine Funktion summe(spalte) für eine CSV.  ')
     expect(b).toContain('Schreibe eine Funktion summe(spalte) für eine CSV.')
     expect(b).toContain('Eigenständige Teilaufgabe')
-    expect(b).not.toMatch(/FORTSCHRITT|openLLM|Projektkontext/i) // nothing about the wider task leaks in
+    expect(b).not.toMatch(/FORTSCHRITT|OpenDante|Projektkontext/i) // nothing about the wider task leaks in
   })
 
   it('audit asks for a ranked list and includes the content in a code fence', () => {

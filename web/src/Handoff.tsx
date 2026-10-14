@@ -46,7 +46,7 @@ export function Handoff({ kind, onClose, onApply }: { kind: HandoffKind; onClose
           <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={onClose}>Abbrechen</button>
           <button className="rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410] disabled:opacity-40"
             disabled={!answer.trim()} onClick={() => { onApply(applyBriefing(kind, answer)); onClose() }}>
-            An openLLM übergeben
+            An OpenDante übergeben
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-# Plan: openLLM (lokaler KI-Programmierassistent wie Claude Code)
+# Plan: OpenDante (lokaler KI-Programmierassistent wie Claude Code)
 
 ## Ziel
 Ein Werkzeug, das selbstständig programmiert — Dateien lesen und schreiben, Befehle im Terminal ausführen, testen, Fehler beheben, mit Git arbeiten — gesteuert von einem *offenen Sprachmodell* (ein KI-Modell, dessen Dateien man frei herunterladen und selbst laufen lassen kann) auf deinem eigenen PC. Kein Abo, keine fremde Programmierschnittstelle, keine Zensur von normalen Programmieraufgaben.
@@ -8,7 +8,7 @@ Wir trainieren **kein** eigenes Modell (das bräuchte Tausende Grafikkarten). Wi
 ## Architektur
 
 ```
- Desktop-Symbol "openLLM"
+ Desktop-Symbol "OpenDante"
         │ startet alles im Hintergrund
         ▼
  Terminal-Fenster  ──┐

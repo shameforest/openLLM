@@ -1,4 +1,4 @@
-# Installation auf dem Shadow-PC (openLLM)
+# Installation auf dem Shadow-PC (OpenDante)
 
 Stand 14.10.2026. Alles läuft kostenlos auf deinem eigenen PC. Keine Abos, keine fremde Programmierschnittstelle.
 
@@ -9,7 +9,7 @@ Claude baut und testet in der Cloud-Sitzung und legt alles auf GitHub. Auf dem S
 
 ## Voraussetzung
 - Windows 11 mit der NVIDIA Quadro RTX 6000 (24 GB). Git für Windows ist schon installiert (aus dem OpenDali-Projekt).
-- **Wichtig:** Der Programmier-Assistent und OpenDali teilen sich die Grafikkarte und laufen **nicht gleichzeitig**. Beende OpenDali, bevor du openLLM nutzt (der Starter fragt dich automatisch).
+- **Wichtig:** Der Programmier-Assistent und OpenDali teilen sich die Grafikkarte und laufen **nicht gleichzeitig**. Beende OpenDali, bevor du OpenDante nutzt (der Starter fragt dich automatisch).
 
 ## Installieren und aktualisieren (immer derselbe Befehl)
 1. Windows-Taste, **PowerShell** eintippen, Enter.
@@ -23,7 +23,7 @@ Claude baut und testet in der Cloud-Sitzung und legt alles auf GitHub. Auf dem S
    cd C:\openLLM; git pull; powershell -ExecutionPolicy Bypass -File scripts\install.ps1
    ```
 3. Warten. Beim ersten Mal lädt das Skript die Programme und das Modell (ca. 18 GB). Bricht es ab, denselben Befehl noch einmal starten — fertige Schritte werden übersprungen, Downloads laufen weiter.
-4. Am Ende liegt das Symbol **openLLM** auf dem Desktop.
+4. Am Ende liegt das Symbol **OpenDante** auf dem Desktop.
 
 Nur die Programme, ohne das Modell:
 ```powershell
@@ -38,10 +38,10 @@ cd C:\openLLM; powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Ski
 | Ollama | der Modell-Server: lässt das Modell auf der Grafikkarte laufen |
 | Qwen3.8-27B | das erste Programmier-Modell (Apache-2.0, ca. 18 GB) |
 | opencode.json | verbindet OpenCode mit dem lokalen Modell |
-| Desktop-Symbol „openLLM“ | Start mit Doppelklick |
+| Desktop-Symbol „OpenDante“ | Start mit Doppelklick |
 
 ## Benutzen
-- Doppelklick auf **openLLM**. Es öffnet sich ein Terminal-Fenster mit dem Assistenten in deinem Ordner `C:\Users\…\code`.
+- Doppelklick auf **OpenDante**. Es öffnet sich ein Terminal-Fenster mit dem Assistenten in deinem Ordner `C:\Users\…\code`.
 - Tipp deine Anweisung in normaler Sprache ein, z. B. „Baue mir eine kleine Webseite mit einem Kontaktformular“. Der Assistent plant, schreibt Dateien und führt Befehle aus.
 - Eine Web-Oberfläche (im Browser) kommt in einem späteren Schritt (M5).
 

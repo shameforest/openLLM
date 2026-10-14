@@ -6,7 +6,7 @@ import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { Modi } from './Modi'
 import { Handoff, type HandoffKind } from './Handoff'
 
-// The openLLM desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
+// The OpenDante desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
 // simulated answer so the window is never dead — the same render path is used either way.
 
@@ -106,7 +106,7 @@ export default function App() {
     setRun({ startedAt, turn: emptyTurn() })
     if (online) {
       try {
-        if (!sessionRef.current) sessionRef.current = (await createSession('openLLM')).id
+        if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante')).id
         await sendPrompt(sessionRef.current, modes.autopilot ? AUTOPILOT_PREFIX + prompt : prompt)
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
@@ -121,7 +121,7 @@ export default function App() {
       <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
         <div className="flex items-center gap-2 px-4 py-4">
           <span className="size-3 rounded-full bg-accent" />
-          <span className="text-[15px] font-semibold tracking-tight">openLLM</span>
+          <span className="text-[15px] font-semibold tracking-tight">OpenDante</span>
         </div>
         <button className="mx-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
           onClick={() => { setMessages([]); setRun(null); sessionRef.current = null }}>+ Neuer Chat</button>
@@ -148,7 +148,7 @@ export default function App() {
       <main className="flex min-w-0 flex-1 flex-col">
         {online === false && (
           <div className="border-b border-line bg-panel px-6 py-2 text-center text-[12px] text-ink2">
-            Lokaler Server nicht erreichbar — starte openLLM (<span className="mono">opencode serve</span>). Solange läuft eine Vorschau.
+            Lokaler Server nicht erreichbar — starte OpenDante (<span className="mono">opencode serve</span>). Solange läuft eine Vorschau.
           </div>
         )}
         <div className="flex-1 overflow-y-auto">
@@ -201,7 +201,7 @@ function Bubble({ m, live = false, thinking = false }: { m: Msg; live?: boolean;
   }
   return (
     <div className="max-w-[640px] self-start">
-      <div className="mb-1 text-[12px] font-medium text-accent">openLLM</div>
+      <div className="mb-1 text-[12px] font-medium text-accent">OpenDante</div>
       {m.tools && m.tools.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {m.tools.map((t) => (

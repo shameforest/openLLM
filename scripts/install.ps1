@@ -1,4 +1,4 @@
-# openLLM: install or update everything on this Windows PC (first draft, test on the Shadow PC).
+# OpenDante: install or update everything on this Windows PC (first draft, test on the Shadow PC).
 # Safe to run again; finished steps are skipped. Mirrors the OpenDali installer.
 #
 #   powershell -ExecutionPolicy Bypass -File C:\openLLM\scripts\install.ps1
@@ -35,7 +35,7 @@ function Refresh-Path {
                 (Join-Path $HOME "scoop\shims")
 }
 
-Write-Host "openLLM Installation  (Protokoll: $LogFile)" -ForegroundColor White
+Write-Host "OpenDante Installation  (Protokoll: $LogFile)" -ForegroundColor White
 Refresh-Path
 
 # 1 -------------------------------------------------------------- Scoop (user-space package manager, no admin)
@@ -120,14 +120,14 @@ Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle, Skills) nach $cfg
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shell = New-Object -ComObject WScript.Shell
-$lnk = $shell.CreateShortcut((Join-Path $desktop "openLLM.lnk"))
+$lnk = $shell.CreateShortcut((Join-Path $desktop "OpenDante.lnk"))
 $lnk.TargetPath = "powershell.exe"
 $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"" + (Join-Path $Root "scripts\start.ps1") + "`""
 $lnk.WorkingDirectory = $Root
 $lnk.Save()
-Ok "Symbol 'openLLM' liegt auf dem Desktop"
+Ok "Symbol 'OpenDante' liegt auf dem Desktop"
 
 Write-Host ""
-Write-Host "Fertig. Doppelklick auf 'openLLM' startet den Programmier-Assistenten." -ForegroundColor Green
-Write-Host "Hinweis: Grafikspeicher wird mit OpenDali geteilt - beende OpenDali, bevor du openLLM nutzt." -ForegroundColor Yellow
+Write-Host "Fertig. Doppelklick auf 'OpenDante' startet den Programmier-Assistenten." -ForegroundColor Green
+Write-Host "Hinweis: Grafikspeicher wird mit OpenDali geteilt - beende OpenDali, bevor du OpenDante nutzt." -ForegroundColor Yellow
 Stop-Transcript | Out-Null

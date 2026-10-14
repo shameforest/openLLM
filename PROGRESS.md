@@ -1,4 +1,4 @@
-# openLLM — progress / project memory
+# OpenDante — progress / project memory
 Read this first every session. Update it at the end of every session.
 
 ## Goal

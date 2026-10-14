@@ -1,9 +1,9 @@
-# openLLM — project notes for the coding agent and for Claude
+# OpenDante — project notes for the coding agent and for Claude
 
 ## What this is
 A free, open-source, **local** AI coding agent — a Claude Code equivalent that runs on the user's own GPU with open-weight models, with no paid APIs. We do **not** train a model. We **assemble and configure**: extend the OpenCode harness, drive it with a local open-weight model served by Ollama, add the missing pieces (web search, browser testing, more models), and ship it with a one-command installer like the sibling project OpenDali.
 
-Working name "openLLM" (the repo name); may be renamed later. Read `docs/PLAN.md` (architecture, milestones) and `docs/RESEARCH.md` (models, harness, servers — with reliability caveats) before working.
+Product/display name is "OpenDante"; the Git repo and filesystem paths keep the old name (`openllm`, `C:\openLLM`) so nothing breaks. Read `docs/PLAN.md` (architecture, milestones) and `docs/RESEARCH.md` (models, harness, servers — with reliability caveats) before working.
 
 ## The user
 - Not a programmer, writes German. Answer in **German** and explain every technical term in one plain sentence the first time it appears.

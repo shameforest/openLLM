@@ -1,4 +1,4 @@
-# openLLM: make sure the model server runs, then open the coding agent. Started by the desktop shortcut.
+# OpenDante: make sure the model server runs, then open the coding agent. Started by the desktop shortcut.
 # -Serve: start the OpenCode web server instead of the terminal app (web UI comes in M5).
 param([switch]$Serve)
 $ErrorActionPreference = "Continue"
@@ -8,14 +8,14 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" +
             [Environment]::GetEnvironmentVariable("Path", "Machine")
 
 Add-Type -AssemblyName System.Windows.Forms
-function Note($t) { [System.Windows.Forms.MessageBox]::Show($t, "openLLM") | Out-Null }
+function Note($t) { [System.Windows.Forms.MessageBox]::Show($t, "OpenDante") | Out-Null }
 
 # The GPU holds only one big model at a time: OpenDali's image engine (port 8188) must not run alongside the LLM.
 $busy = Get-NetTCPConnection -LocalPort 8188 -State Listen -ErrorAction SilentlyContinue
 if ($busy) {
     $r = [System.Windows.Forms.MessageBox]::Show(
         "OpenDali (Bildgenerator) laeuft gerade und belegt die Grafikkarte. Zuerst beenden?`n`nJa = OpenDali beenden und fortfahren.",
-        "openLLM", "YesNo")
+        "OpenDante", "YesNo")
     if ($r -eq "Yes") { & (Join-Path (Split-Path $Root) "AI\scripts\stop.ps1") 2>$null }
 }
 

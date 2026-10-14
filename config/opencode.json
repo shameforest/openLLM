@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "_note": "openLLM default OpenCode config. Installed to ~/.config/opencode/ by scripts/install.ps1. Verified 2026-10-14 against OpenCode v1.19.0 docs/source. Pin OpenCode 1.x: OpenCode 2 changes this schema. limit.context/output MUST be set (they default to 0); temperature must be true for agents to set it.",
+  "_note": "OpenDante default OpenCode config. Installed to ~/.config/opencode/ by scripts/install.ps1. Verified 2026-10-14 against OpenCode v1.19.0 docs/source. Pin OpenCode 1.x: OpenCode 2 changes this schema. limit.context/output MUST be set (they default to 0); temperature must be true for agents to set it.",
   "model": "ollama/qwen3.8:27b",
   "provider": {
     "ollama": {

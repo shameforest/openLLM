@@ -1,6 +1,6 @@
-# openLLM
+# OpenDante
 
-Ein kostenloser, lokaler KI-Programmierassistent wie Claude Code — läuft mit offenen Modellen auf dem eigenen PC, ohne Abo und ohne fremde Programmierschnittstelle (*API*). Arbeitsname, kann noch umbenannt werden.
+Ein kostenloser, lokaler KI-Programmierassistent wie Claude Code — läuft mit offenen Modellen auf dem eigenen PC, ohne Abo und ohne fremde Programmierschnittstelle (*API*).
 
 **Stand:** Recherche und Plan sind fertig (Meilenstein M0). Als Nächstes das Fundament (M1): Modell-Server, ein Modell und die Agenten-Hülle laufen zusammen.
 

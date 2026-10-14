@@ -4,17 +4,17 @@ const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
   {
     key: 'autopilot',
     title: 'Autopilot – in Etappen arbeiten',
-    desc: 'Für große Aufträge: openLLM arbeitet in kleinen Schritten mit einem Gedächtnis-Dokument (FORTSCHRITT.md), erinnert sich selbst an den Ursprungsauftrag und den Stand und macht automatisch weiter — gegen Abschweifen und Vergessen.',
+    desc: 'Für große Aufträge: OpenDante arbeitet in kleinen Schritten mit einem Gedächtnis-Dokument (FORTSCHRITT.md), erinnert sich selbst an den Ursprungsauftrag und den Stand und macht automatisch weiter — gegen Abschweifen und Vergessen.',
   },
   {
     key: 'offload',
     title: 'Mit Claude Code beschleunigen',
-    desc: 'Gibt einzelne, in sich geschlossene Teilaufgaben an Claude Code ab (per Kopieren/Einfügen, kein Konto nötig). Dein Projektzusammenhang bleibt lokal — nur die harmlose Teilaufgabe wird übergeben, sensible Arbeit bleibt bei openLLM.',
+    desc: 'Gibt einzelne, in sich geschlossene Teilaufgaben an Claude Code ab (per Kopieren/Einfügen, kein Konto nötig). Dein Projektzusammenhang bleibt lokal — nur die harmlose Teilaufgabe wird übergeben, sensible Arbeit bleibt bei OpenDante.',
   },
   {
     key: 'audit',
     title: 'Claude-Code-Audit',
-    desc: 'Lässt Plan (am Anfang) und fertigen Code (am Ende) von Claude Code prüfen. Du kopierst die Prüf-Anfrage dorthin und fügst die Verbesserungen zurück ein — openLLM setzt die sinnvollen Punkte automatisch um.',
+    desc: 'Lässt Plan (am Anfang) und fertigen Code (am Ende) von Claude Code prüfen. Du kopierst die Prüf-Anfrage dorthin und fügst die Verbesserungen zurück ein — OpenDante setzt die sinnvollen Punkte automatisch um.',
   },
 ]
 
@@ -25,7 +25,7 @@ export function Modi({ open, onClose }: { open: boolean; onClose: () => void }) 
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-[560px] rounded-2xl border border-line bg-panel p-5" onClick={(e) => e.stopPropagation()} data-testid="modi">
         <div className="mb-1 text-[17px] font-semibold">Modi</div>
-        <p className="mb-4 text-[13px] text-ink3">Alles ist standardmäßig aus. Ohne diese Schalter läuft jede Aufgabe vollständig lokal in openLLM.</p>
+        <p className="mb-4 text-[13px] text-ink3">Alles ist standardmäßig aus. Ohne diese Schalter läuft jede Aufgabe vollständig lokal in OpenDante.</p>
         <div className="flex flex-col divide-y divide-line">
           {ROWS.map((r) => (
             <div key={r.key} className="flex items-start justify-between gap-4 py-3">
