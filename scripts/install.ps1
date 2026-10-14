@@ -28,8 +28,11 @@ function Fail($t) {
     Stop-Transcript | Out-Null; exit 1
 }
 function Refresh-Path {
+    # Scoop adds ~\scoop\shims to the user PATH, but an already-open shell won't see it until restart;
+    # add it explicitly so freshly installed tools (opencode) resolve within this run.
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" +
-                [Environment]::GetEnvironmentVariable("Path", "Machine")
+                [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                (Join-Path $HOME "scoop\shims")
 }
 
 Write-Host "openLLM Installation  (Protokoll: $LogFile)" -ForegroundColor White
@@ -58,7 +61,10 @@ if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
 } else {
     scoop update opencode 2>$null
 }
-Ok ("opencode " + (try { (opencode --version) 2>$null } catch { "" }))
+# PowerShell: try/catch is a statement, not an expression — do it before the Ok line.
+$ocVersion = ""
+try { $ocVersion = (opencode --version 2>$null) } catch {}
+Ok "opencode $ocVersion installiert (Version 1.x erwartet)"
 
 # 3 -------------------------------------------------------------- Ollama (the model server)
 Step 3 "Ollama einrichten (laesst das Modell auf der Grafikkarte laufen)"
