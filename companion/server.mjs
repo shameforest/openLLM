@@ -66,6 +66,20 @@ async function saveSkill(name, content) {
   return slug
 }
 
+/** Open the native Windows folder dialog and return the chosen absolute path (the browser cannot read a folder path). */
+function pickFolder() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve({ path: '', note: 'Ordnerwahl gibt es nur unter Windows.' })
+    // FolderBrowserDialog needs a single-threaded apartment (-STA); we write only the chosen path to stdout.
+    const ps = "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Ordner fuer OpenDante waehlen'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }"
+    const child = spawn('powershell.exe', ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { cwd: ROOT })
+    let out = ''
+    child.stdout.on('data', (d) => { out += d.toString() })
+    child.on('error', () => resolve({ path: '', note: 'Ordner-Dialog konnte nicht geoeffnet werden.' }))
+    child.on('close', () => { const p = out.trim(); resolve({ path: p, note: p ? '' : 'Keine Auswahl getroffen.' }) })
+  })
+}
+
 /** Fire an update script and return at once. Windows only (git/powershell/ollama live there). */
 function runUpdate(kind) {
   if (process.platform !== 'win32') return { started: false, note: 'Updates laufen nur unter Windows.' }
@@ -110,6 +124,7 @@ const server = http.createServer(async (req, res) => {
       const slug = await saveSkill(b.name, b.content)
       return sendJson(res, 200, { ok: true, slug })
     }
+    if (req.method === 'POST' && url.pathname === '/pick-folder') return sendJson(res, 200, await pickFolder())
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
     if (req.method === 'POST' && url.pathname === '/update/models') return sendJson(res, 200, runUpdate('models'))
     if (req.method === 'GET') return serveStatic(req, res)

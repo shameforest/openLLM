@@ -31,6 +31,9 @@ try {
   ok(s.slug === 'test-runner', 'skill name slugified')
   ok((await fs.readFile(path.join(cfg, 'skills', 'test-runner', 'SKILL.md'), 'utf8')).includes('body'), 'skill saved as SKILL.md')
 
+  const pf = await post('/pick-folder', {})
+  ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
+
   await post('/settings', { globalInstructions: 'Neu.', apiKey: '', claudeModel: 'claude-opus-5-5' })
   const agents2 = await fs.readFile(path.join(cfg, 'AGENTS.md'), 'utf8')
   ok((agents2.match(/OPENDANTE-USER-START/g) || []).length === 1 && agents2.includes('Neu.'), 'user block replaced, not duplicated')

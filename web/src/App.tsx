@@ -3,6 +3,7 @@ import { type AnswerSample, type Timing, elapsedLabel, fraction, remainingLabel 
 import { type OcEvent, connectEvents, createSession, health, sendPrompt } from './api'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
+import { companionPost } from './companion'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 import { Handoff, type HandoffKind } from './HandoffDialog'
@@ -35,6 +36,7 @@ export default function App() {
   const [modiOpen, setModiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
+  const [folderMsg, setFolderMsg] = useState('')
   const [handoff, setHandoff] = useState<HandoffKind | null>(null)
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -52,12 +54,12 @@ export default function App() {
     const check = () => health().then((h) => {
       if (!alive) return
       setOnline(!!h)
-      if (h) disconnect = connectEvents(feed, (ok) => setOnline(ok))
+      if (h) disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir)
     })
     check()
     const id = window.setInterval(() => { if (alive && online !== true) check() }, 5000)
     return () => { alive = false; disconnect(); window.clearInterval(id); simRef.current() }
-  }, [feed, online])
+  }, [feed, online, modes.workdir])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, run])
 
@@ -109,16 +111,35 @@ export default function App() {
     setRun({ startedAt, turn: emptyTurn() })
     if (online) {
       try {
-        if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante')).id
+        if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante', modes.workdir)).id
         let text = modes.autopilot ? AUTOPILOT_PREFIX + prompt : prompt
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
-        await sendPrompt(sessionRef.current, text)
+        await sendPrompt(sessionRef.current, text, modes.workdir)
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
       }
     } else {
       simulate(startedAt)
+    }
+  }
+
+  // Let the user hand the agent a real folder on this PC. The browser can't read a folder path, so the local helper
+  // service opens the native folder dialog and returns the chosen absolute path; we then work in that folder.
+  async function pickFolder() {
+    setFolderMsg('Ordner-Auswahl geöffnet…')
+    try {
+      const r = await companionPost<{ path?: string; note?: string }>('/pick-folder')
+      if (r.path) {
+        modes.set({ workdir: r.path })
+        sessionRef.current = null // a new folder starts a fresh session
+        setMessages([]); setRun(null)
+        setFolderMsg(''); setPlusOpen(false)
+      } else {
+        setFolderMsg(r.note || 'Keine Auswahl getroffen.')
+      }
+    } catch {
+      setFolderMsg('Der lokale Dienst läuft noch nicht — Ordnerwahl erst nach dem Start von OpenDante.')
     }
   }
 
@@ -143,6 +164,10 @@ export default function App() {
         <div className="border-t border-line px-4 py-3">
           <div className="text-[11px] uppercase tracking-wider text-ink3">Skills</div>
           <p className="mt-1 text-[13px] text-ink3">Bald: eigene Skills hochladen und nutzen.</p>
+        </div>
+        <div className="border-t border-line px-4 py-2 text-[12px] text-ink3" title={modes.workdir || 'Der Ordner, in dem OpenCode gestartet wurde'}>
+          <span className="uppercase tracking-wider">Ordner</span>
+          <div className="mono mt-0.5 break-all text-ink2">{modes.workdir || 'Standard (Serverordner)'}</div>
         </div>
         <div className="flex items-center justify-between border-t border-line px-4 py-3 text-[12px] text-ink2">
           <span><span className="mono">Qwen3.8 27B</span> · lokal</span>
@@ -186,7 +211,16 @@ export default function App() {
               <div className="relative">
                 <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
                 {plusOpen && (
-                  <div className="absolute bottom-11 left-0 z-10 w-56 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
+                  <div className="absolute bottom-11 left-0 z-10 w-72 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => void pickFolder()} data-testid="pick-folder">📁 Ordner auf diesem PC wählen…</button>
+                    <div className="px-3 py-1.5 text-[12px] text-ink3">
+                      Arbeitsordner: <span className="mono break-all text-ink2">{modes.workdir || 'Serverordner (Standard)'}</span>
+                    </div>
+                    {modes.workdir && (
+                      <button className="w-full rounded-lg px-3 py-1.5 text-left text-ink3 hover:bg-user" onClick={() => { modes.set({ workdir: '' }); sessionRef.current = null; setMessages([]); setRun(null); setPlusOpen(false) }}>↺ Auf Standardordner zurücksetzen</button>
+                    )}
+                    {folderMsg && <div className="px-3 py-1.5 text-[12px] text-accent">{folderMsg}</div>}
+                    <div className="my-1 border-t border-line" />
                     <div className="rounded-lg px-3 py-2 text-ink3">Datei anhängen (bald)</div>
                     <div className="rounded-lg px-3 py-2 text-ink3">Kontext / Referenz einfügen (bald)</div>
                   </div>
