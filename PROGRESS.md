@@ -5,7 +5,7 @@ Read this first every session. Update it at the end of every session.
 A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assemble + configure OpenCode + Ollama + a local open-weight model; add browser testing and more models; ship with a one-command Windows installer.
 
 ## Status
-**M0 done** (research, plan, scaffold). **M1 foundation + M2 agent config written** — not yet run on Windows.
+**M0 + M1 installed and verified on the Shadow PC** (2026-10-14): OpenCode 1.19.0, Ollama 0.40.4, model `qwen3.8:27b` pulled, config installed to `%USERPROFILE%\.config\opencode`. `opencode debug config` confirms the whole config loads correctly (model, provider, limit 65536/8192, permissions, plan + review agents, /test /review /commit commands). **Next: first autonomous task (plan→edit→run→test).**
 
 ## Decisions (see CLAUDE.md / docs for detail)
 - Harness: OpenCode (MIT, anomalyco/opencode) — **pin OpenCode 1.x** (v2 changes the config schema). Server: Ollama (MIT). First model: `qwen3.8:27b` (Apache-2.0, ~18 GB). One model first, blind test later. Local-only, 24 GB, Windows. GPU shared with OpenDali — not at the same time.
@@ -15,10 +15,10 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 - OpenCode v1.19.0 schema (confidence ~90, nothing run): config at `~/.config/opencode/opencode.json` (global) + project root; `$schema=https://opencode.ai/config.json`; model `provider/model`. **Trap: `limit.context`/`limit.output` default to 0 → set both; `temperature` defaults false → set `true`.** Instructions file is `AGENTS.md` (CLAUDE.md only a fallback). Agents in `~/.config/opencode/agents/*.md` (YAML frontmatter + body); commands in `commands/*.md` with `$ARGUMENTS`, `!` for shell injection, `@` for files. Permissions: key `permission`, values allow/ask/deny, per-tool + bash per-pattern, last match wins (put `*` first). Plan vs build: built-in `plan`/`build` agents, Tab to switch; formal approval gate via `OPENCODE_EXPERIMENTAL_PLAN_MODE=1`. Ollama /v1 can't set context → `OLLAMA_CONTEXT_LENGTH` env (set to 65536).
 
 ## Open / to verify on the Shadow PC
-- **`scoop install opencode` version — must be 1.x, not 2.** If it installs OpenCode 2, pin via npm `opencode-ai@1.19.0` (needs Node) — exact npm package name still to confirm (@opencode/cli vs opencode-ai).
-- OpenCode config path on Windows (`%USERPROFILE%\.config\opencode\`) and that the config is picked up (`opencode debug config`).
-- Node.js for the Playwright MCP (currently `enabled:false`; enable in M3 after installing Node).
-- Whether the experimental plan-mode gate behaves; OllamaSetup silent flags; Scoop bootstrap. All untested on Windows.
+- RESOLVED 2026-10-14: `scoop install opencode` → 1.19.0 (v2 is a separate package `versions/opencode2`); config loads from `%USERPROFILE%\.config\opencode`; install.ps1 runs end to end. Fixed along the way: a `try`-as-expression crash, the scoop-shims PATH, and the Ollama installer's app menu hijacking the console.
+- OPEN: does OpenCode reach Ollama on the first real model call, or does it first prompt for an auth credential? (Schema lookup suggested a placeholder key may be needed via `opencode auth login`.)
+- OPEN: the first autonomous task (plan→edit→run→test) — the proof that closes M1.
+- M3: Node.js + enable the Playwright MCP; WSL/Docker sandbox (nested virtualization on Shadow unverified).
 
 ## Files
 - Docs: `CLAUDE.md`, `README.md`, `LICENSE` (MIT), `.gitignore`, `docs/PLAN.md`, `docs/RESEARCH.md`, `docs/SETUP.md`
