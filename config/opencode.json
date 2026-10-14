@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "_note": "openLLM default config. Installed to the user's OpenCode config dir by scripts/install.ps1. Points OpenCode at the local Ollama server (OpenAI-compatible endpoint). Add more local models under provider.ollama.models as they are pulled. Verified 2026-10-14 against OpenCode's self-hosted-model docs; confirm key names against the installed OpenCode version.",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen3.8:27b": {
+          "name": "Qwen3.8 27B (local)"
+        }
+      }
+    }
+  },
+  "model": "ollama/qwen3.8:27b"
+}
