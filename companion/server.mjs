@@ -57,6 +57,24 @@ async function setAnthropic(apiKey, model) {
   await fs.writeFile(file, JSON.stringify(cfg, null, 2))
 }
 
+/** List installed skills (one folder each with a SKILL.md), with name + description read from the --- head. */
+async function listSkills() {
+  const dir = path.join(CFG, 'skills')
+  let slugs = []
+  try { slugs = await fs.readdir(dir) } catch { return [] }
+  const out = []
+  for (const slug of slugs) {
+    try {
+      const md = await fs.readFile(path.join(dir, slug, 'SKILL.md'), 'utf8')
+      const name = (md.match(/^\s*---[\s\S]*?\bname:\s*["']?([^"'\n]+)/)?.[1] || slug).trim()
+      const description = (md.match(/^\s*---[\s\S]*?\bdescription:\s*["']?([^"'\n]+)/)?.[1] || '').trim()
+      out.push({ slug, name, description })
+    } catch { /* not a skill folder */ }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name))
+  return out
+}
+
 async function saveSkill(name, content) {
   const slug = String(name || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
   if (!slug) throw new Error('Ungültiger Name')
@@ -113,6 +131,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end() }
   try {
     if (url.pathname === '/health') return sendJson(res, 200, { ok: true, service: 'opendante-companion' })
+    if (req.method === 'GET' && url.pathname === '/skills') return sendJson(res, 200, await listSkills())
     if (req.method === 'POST' && url.pathname === '/settings') {
       const b = await readBody(req)
       await setGlobalInstructions(b.globalInstructions ?? '')

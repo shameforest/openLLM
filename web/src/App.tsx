@@ -4,6 +4,7 @@ import { type OcEvent, connectEvents, createSession, health, sendPrompt } from '
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent } from './stream'
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { companionPost } from './companion'
+import { expandSkillCommand, useSkills } from './skills'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 import { Handoff, type HandoffKind } from './HandoffDialog'
@@ -32,6 +33,7 @@ export default function App() {
   const [online, setOnline] = useState<boolean | null>(null)
   const [, setTick] = useState(0)
   const modes = useSettings()
+  const skills = useSkills()
   const modesActive = [modes.autopilot, modes.offload, modes.audit].filter(Boolean).length
   const [modiOpen, setModiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -41,6 +43,10 @@ export default function App() {
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
   const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Load the installed skills once (from the companion) so the sidebar and /commands know them.
+  useEffect(() => { void skills.refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
   const feed = useCallback((e: OcEvent) => {
@@ -112,7 +118,8 @@ export default function App() {
     if (online) {
       try {
         if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante', modes.workdir)).id
-        let text = modes.autopilot ? AUTOPILOT_PREFIX + prompt : prompt
+        const asked = expandSkillCommand(prompt, skills.list) // turn a /skillname command into a skill instruction
+        let text = modes.autopilot ? AUTOPILOT_PREFIX + asked : asked
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         await sendPrompt(sessionRef.current, text, modes.workdir)
@@ -163,7 +170,18 @@ export default function App() {
         <div className="flex-1 overflow-y-auto px-3 text-[13px] text-ink3"><p className="px-1 py-2">Noch keine Unterhaltungen.</p></div>
         <div className="border-t border-line px-4 py-3">
           <div className="text-[11px] uppercase tracking-wider text-ink3">Skills</div>
-          <p className="mt-1 text-[13px] text-ink3">Bald: eigene Skills hochladen und nutzen.</p>
+          {skills.list.length === 0 ? (
+            <p className="mt-1 text-[13px] text-ink3">{skills.loaded ? 'Noch keine — über Einstellungen hochladen.' : '…'}</p>
+          ) : (
+            <div className="mt-1 flex flex-col gap-0.5">
+              {skills.list.map((sk) => (
+                <button key={sk.slug} className="rounded-md px-1.5 py-1 text-left text-[13px] text-ink2 hover:bg-user" title={sk.description || sk.name}
+                  onClick={() => { setInput(`/${sk.slug} `); inputRef.current?.focus() }} data-testid={`skill-${sk.slug}`}>
+                  <span className="mono text-accent">/{sk.slug}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="border-t border-line px-4 py-2 text-[12px] text-ink3" title={modes.workdir || 'Der Ordner, in dem OpenCode gestartet wurde'}>
           <span className="uppercase tracking-wider">Ordner</span>
@@ -226,8 +244,8 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <textarea className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink3"
-                placeholder="Beschreibe, was gebaut werden soll…" rows={1} value={input}
+              <textarea ref={inputRef} className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink3"
+                placeholder="Beschreibe, was gebaut werden soll… (oder /skillname)" rows={1} value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
               <button className="mb-1 rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410] disabled:opacity-40"

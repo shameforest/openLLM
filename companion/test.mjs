@@ -27,9 +27,12 @@ try {
   const oc = JSON.parse(await fs.readFile(path.join(cfg, 'opencode.json'), 'utf8'))
   ok(oc.provider.anthropic.options.apiKey === 'sk-ant-x' && oc.provider.anthropic.models['claude-opus-5-5'], 'anthropic provider + key written')
 
-  const s = await post('/skills', { name: 'Test Runner!', content: '---\nname: test-runner\n---\nbody' })
+  const s = await post('/skills', { name: 'Test Runner!', content: '---\nname: test-runner\ndescription: runs tests\n---\nbody' })
   ok(s.slug === 'test-runner', 'skill name slugified')
   ok((await fs.readFile(path.join(cfg, 'skills', 'test-runner', 'SKILL.md'), 'utf8')).includes('body'), 'skill saved as SKILL.md')
+
+  const skillList = await fetch(base + '/skills').then((r) => r.json())
+  ok(Array.isArray(skillList) && skillList.some((x) => x.slug === 'test-runner' && x.description === 'runs tests'), 'GET /skills lists the saved skill with its description')
 
   const pf = await post('/pick-folder', {})
   ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
