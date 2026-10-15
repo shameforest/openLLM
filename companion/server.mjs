@@ -19,6 +19,7 @@ const MODEL = process.env.OPENDANTE_MODEL || 'orcarouter/Qwen3.8-27B-Uncensored:
 // An Ollama model name like "qwen3.8:27b" or "user/Model-Name:q4_K_M" — nothing else may reach `ollama pull`.
 const modelOk = (m) => typeof m === 'string' && /^[\w.-]+(\/[\w.-]+)?(:[\w.-]+)?$/.test(m)
 const PROJECTS = process.env.OPENDANTE_PROJECTS || path.join(os.homedir(), 'OpenDante-Projekte')
+const CHATS = path.join(process.env.OPENDANTE_DATA || path.join(os.homedir(), '.opendante'), 'chats')
 
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }
 const sendJson = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', ...CORS }); res.end(JSON.stringify(obj)) }
@@ -180,6 +181,49 @@ async function gitAction(dir, action, message) {
   throw new Error('Unbekannte Git-Aktion.')
 }
 
+// ---- Verlauf (gespeicherte Chats) ----
+// One chat = <id>.json (everything the window shows, incl. thinking, Claude replies and token usage) plus a small
+// <id>.meta.json (title, date, usage) so listing stays fast however long the chats get. The OpenCode session id inside
+// lets a reopened chat continue with the model's full context.
+const chatIdOk = (id) => typeof id === 'string' && /^[a-z0-9-]{8,64}$/.test(id)
+
+async function saveChat(chat) {
+  if (!chat || !chatIdOk(chat.id)) throw new Error('Ungültige Chat-Kennung.')
+  if (!Array.isArray(chat.messages)) throw new Error('Chat ohne Nachrichten.')
+  const meta = {
+    id: chat.id,
+    title: String(chat.title || 'Ohne Titel').slice(0, 120),
+    createdAt: Number(chat.createdAt) || Date.now(),
+    updatedAt: Date.now(),
+    workdir: String(chat.workdir || ''),
+    model: String(chat.model || ''),
+    messages: chat.messages.length,
+    usage: chat.usage && typeof chat.usage === 'object' ? chat.usage : {},
+  }
+  await fs.mkdir(CHATS, { recursive: true })
+  await fs.writeFile(path.join(CHATS, `${chat.id}.json`), JSON.stringify({ ...chat, ...meta, messages: chat.messages }))
+  await fs.writeFile(path.join(CHATS, `${chat.id}.meta.json`), JSON.stringify(meta))
+  return meta
+}
+
+/** All chats, newest first (metadata only). */
+async function listChats() {
+  let names = []
+  try { names = await fs.readdir(CHATS) } catch { return [] }
+  const out = []
+  for (const n of names) {
+    if (!n.endsWith('.meta.json')) continue
+    try { out.push(JSON.parse(await fs.readFile(path.join(CHATS, n), 'utf8'))) } catch { /* half-written file */ }
+  }
+  out.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+  return out
+}
+
+async function loadChat(id) {
+  if (!chatIdOk(id)) throw new Error('Ungültige Chat-Kennung.')
+  try { return JSON.parse(await fs.readFile(path.join(CHATS, `${id}.json`), 'utf8')) } catch { throw new Error('Chat nicht gefunden.') }
+}
+
 // ---- Claude-API-Brücke (bezahlt) ----
 // Read the stored Anthropic key + model from OpenCode's config (written by the Einstellungen panel).
 async function readAnthropic() {
@@ -231,6 +275,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/health') return sendJson(res, 200, { ok: true, service: 'opendante-companion' })
     if (req.method === 'GET' && url.pathname === '/skills') return sendJson(res, 200, await listSkills())
     if (req.method === 'GET' && url.pathname === '/repos') return sendJson(res, 200, await listRepos())
+    if (req.method === 'GET' && url.pathname === '/chats') return sendJson(res, 200, await listChats())
+    if (req.method === 'GET' && url.pathname.startsWith('/chats/')) return sendJson(res, 200, await loadChat(url.pathname.slice(7)))
+    if (req.method === 'POST' && url.pathname === '/chats') { const b = await readBody(req); return sendJson(res, 200, await saveChat(b)) }
     if (req.method === 'POST' && url.pathname === '/repo/clone') { const b = await readBody(req); return sendJson(res, 200, await cloneRepo(b.url)) }
     if (req.method === 'POST' && url.pathname === '/git') { const b = await readBody(req); return sendJson(res, 200, await gitAction(b.path, b.action, b.message)) }
     if (req.method === 'POST' && url.pathname === '/settings') {

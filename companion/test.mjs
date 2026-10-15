@@ -8,9 +8,10 @@ import { fileURLToPath } from 'node:url'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const cfg = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-'))
 const proj = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-proj-'))
+const data = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-data-'))
 const PORT = 4096 + Math.floor(Math.random() * 500) + 50
 const srv = spawn(process.execPath, [path.join(HERE, 'server.mjs')], {
-  env: { ...process.env, OPENCODE_CONFIG_DIR: cfg, OPENDANTE_COMPANION_PORT: String(PORT), OPENDANTE_PROJECTS: proj },
+  env: { ...process.env, OPENCODE_CONFIG_DIR: cfg, OPENDANTE_COMPANION_PORT: String(PORT), OPENDANTE_PROJECTS: proj, OPENDANTE_DATA: data },
   stdio: 'ignore',
 })
 const base = `http://127.0.0.1:${PORT}`
@@ -39,6 +40,22 @@ try {
     const pf = await post('/pick-folder', {})
     ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
   }
+
+  // Verlauf
+  const chats0 = await fetch(base + '/chats').then((r) => r.json())
+  ok(Array.isArray(chats0) && chats0.length === 0, 'GET /chats is empty at first')
+  const chat = { id: 'chat-test-0001', title: 'Hallo Welt', sessionId: 'ses_x', workdir: 'C:\\x', messages: [{ role: 'user', text: 'Hallo' }, { role: 'assistant', text: 'Hi', reasoning: 'denke' }], usage: { local: 40, localIn: 900, claudeOut: 10 } }
+  const saved = await post('/chats', chat)
+  ok(saved.id === chat.id && saved.messages === 2 && saved.usage.local === 40, 'POST /chats saves a chat and returns its metadata')
+  await post('/chats', { ...chat, id: 'chat-test-0002', title: 'Zweiter' })
+  const chats1 = await fetch(base + '/chats').then((r) => r.json())
+  ok(chats1.length === 2 && chats1[0].title === 'Zweiter' && !('messages' in chats1[0] && Array.isArray(chats1[0].messages)), 'GET /chats lists metadata only, newest first')
+  const full = await fetch(base + '/chats/chat-test-0001').then((r) => r.json())
+  ok(full.sessionId === 'ses_x' && full.messages[1].reasoning === 'denke', 'GET /chats/<id> returns the whole chat incl. thinking + session id')
+  const badChat = await post('/chats', { ...chat, id: '../../evil' })
+  ok(badChat.error && /Kennung/.test(badChat.error), 'a chat id with path characters is rejected')
+  const badGet = await fetch(base + '/chats/..%2F..%2Fx').then((r) => r.json())
+  ok(badGet.error, 'loading a malformed chat id is rejected')
 
   const badModel = await post('/update/models', { model: 'qwen; rm -rf /' })
   ok(badModel.error && /Modellname/.test(badModel.error), 'model update rejects a malformed model name (nothing is run)')
@@ -70,6 +87,7 @@ try {
   srv.kill()
   await fs.rm(cfg, { recursive: true, force: true })
   await fs.rm(proj, { recursive: true, force: true })
+  await fs.rm(data, { recursive: true, force: true })
 }
 console.log(failed ? `\n${failed} FAILED` : '\nall companion checks passed')
 process.exit(failed ? 1 : 0)

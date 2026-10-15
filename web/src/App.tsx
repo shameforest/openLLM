@@ -8,6 +8,7 @@ import { expandSkillCommand, useSkills } from './skills'
 import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, hideOffloadMarkers, offloadTasks } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, usageSplit } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
+import { chatTitle, newChatId, relDate, useChats } from './chats'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 
@@ -51,19 +52,24 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
   const [folderMsg, setFolderMsg] = useState('')
+  const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const chats = useChats()
+  const chatRef = useRef<{ id: string; createdAt: number; title: string } | null>(null) // the chat being saved
+  const [activeChat, setActiveChat] = useState<string | null>(null) // highlighted in the Verlauf
+  const resumeDirRef = useRef<string | null>(null) // reopening a chat switches to its folder without clearing it
 
-  // Load the installed skills from the companion. Retry a few times so the list still fills when the companion
-  // (port 4097) finishes starting a moment after this window opens.
+  // Load the installed skills and the Verlauf from the companion. Retry a few times so the lists still fill when the
+  // companion (port 4097) finishes starting a moment after this window opens.
   useEffect(() => {
     let alive = true
     let tries = 0
     const tick = async () => {
       if (!alive) return
-      const ok = await skills.refresh()
+      const ok = (await Promise.all([skills.refresh(), chats.refresh()])).every(Boolean)
       if (!alive) return
       if (!ok && ++tries < 10) window.setTimeout(tick, 2000)
     }
@@ -71,14 +77,53 @@ export default function App() {
     return () => { alive = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Changing the working folder (from the "+" menu or from Einstellungen) starts a fresh session in the new folder.
+  /** Empty window, fresh OpenCode session, nothing counted — "+ Neuer Chat" and a folder change. */
+  function startNewChat() {
+    sessionRef.current = null
+    chatRef.current = null
+    setActiveChat(null)
+    setMessages([]); setRun(null); setUsage(emptyUsage())
+  }
+
+  // Changing the working folder (from the "+" menu or from Einstellungen) starts a fresh session in the new folder —
+  // except when the change comes from reopening a chat that lives in that folder.
   const prevWorkdir = useRef(modes.workdir)
   useEffect(() => {
     if (prevWorkdir.current === modes.workdir) return
     prevWorkdir.current = modes.workdir
-    sessionRef.current = null
-    setMessages([]); setRun(null); setUsage(emptyUsage())
-  }, [modes.workdir])
+    if (resumeDirRef.current === modes.workdir) { resumeDirRef.current = null; return }
+    startNewChat()
+  }, [modes.workdir]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save the chat to the Verlauf whenever it changed and no answer is streaming (after each answer and each Claude
+  // reply). Placeholders ("Claude bearbeitet …") are left out so a reopened chat never shows a stuck one.
+  useEffect(() => {
+    const c = chatRef.current
+    if (!c || run || messages.length === 0) return
+    const id = window.setTimeout(() => {
+      void chats.save({
+        id: c.id, title: c.title, createdAt: c.createdAt, workdir: modes.workdir, model: modes.localModel,
+        sessionId: sessionRef.current, messages: messages.filter((m) => !m.pending), usage,
+      }).catch(() => { /* companion not running: the chat stays in the window, the next save retries */ })
+    }, 400)
+    return () => window.clearTimeout(id)
+  }, [messages, usage, run]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Reopen a saved chat: its messages, thinking and token counts come back, and the next message continues in the same
+   *  OpenCode session, so the model still knows everything said before. */
+  async function openChat(id: string) {
+    if (run || id === activeChat) return
+    try {
+      const c = await chats.load<Msg>(id)
+      sessionRef.current = c.sessionId
+      chatRef.current = { id: c.id, createdAt: c.createdAt, title: c.title }
+      setActiveChat(c.id); setHistoryMsg('')
+      setMessages(c.messages); setRun(null); setUsage({ ...emptyUsage(), ...c.usage })
+      if ((c.workdir || '') !== modes.workdir) { resumeDirRef.current = c.workdir || ''; modes.set({ workdir: c.workdir || '' }) }
+    } catch (e) {
+      setHistoryMsg(`Chat ließ sich nicht öffnen: ${String((e as Error).message || e)}`)
+    }
+  }
 
   // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
   const feed = useCallback((e: OcEvent) => {
@@ -150,15 +195,28 @@ export default function App() {
     const startedAt = Date.now()
     setRun({ startedAt, turn: emptyTurn(), sim: !online })
     if (online) {
+      // A real chat goes into the Verlauf (the offline preview does not).
+      if (!chatRef.current) {
+        chatRef.current = { id: newChatId(), createdAt: startedAt, title: chatTitle(prompt) }
+        setActiveChat(chatRef.current.id)
+      }
       try {
-        if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante', modes.workdir)).id
         const asked = expandSkillCommand(prompt, skills.list) // turn a /skillname command into a skill instruction
         let text = asked
         if (modes.autopilot) text = AUTOPILOT_PREFIX + text
         if (modes.offload) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
-        await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir)
+        const title = chatRef.current.title
+        if (!sessionRef.current) sessionRef.current = (await createSession(title, modes.workdir)).id
+        try {
+          await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir)
+        } catch {
+          // A reopened chat whose OpenCode session no longer exists: continue in a fresh session (the window keeps
+          // the old messages, the model starts without them).
+          sessionRef.current = (await createSession(title, modes.workdir)).id
+          await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir)
+        }
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
       }
@@ -242,7 +300,7 @@ export default function App() {
           <span className="text-[15px] font-semibold tracking-tight">OpenDante</span>
         </div>
         <button className="mx-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
-          onClick={() => { setMessages([]); setRun(null); setUsage(emptyUsage()); sessionRef.current = null }}>+ Neuer Chat</button>
+          onClick={() => { if (running) void stopRun(); startNewChat() }} data-testid="new-chat">+ Neuer Chat</button>
         <button className="mx-3 mb-3 mt-2 flex items-center justify-between rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
           onClick={() => setModiOpen(true)} data-testid="open-modi">
           <span>Modi</span>
@@ -251,7 +309,24 @@ export default function App() {
         <button className="mx-3 mb-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
           onClick={() => setSettingsOpen(true)} data-testid="open-settings">Einstellungen</button>
         <div className="px-4 py-1 text-[11px] uppercase tracking-wider text-ink3">Verlauf</div>
-        <div className="flex-1 overflow-y-auto px-3 text-[13px] text-ink3"><p className="px-1 py-2">Noch keine Unterhaltungen.</p></div>
+        <div className="flex-1 overflow-y-auto px-3 text-[13px]" data-testid="history">
+          {chats.list.length === 0 ? (
+            <p className="px-1 py-2 text-ink3">{chats.loaded ? 'Noch keine Unterhaltungen.' : '…'}</p>
+          ) : (
+            <div className="flex flex-col gap-0.5 pb-2">
+              {chats.list.map((c) => (
+                <button key={c.id} onClick={() => void openChat(c.id)} disabled={running && c.id !== activeChat}
+                  title={`${c.title}\n${c.workdir || 'Standardordner'} · ${c.messages} Nachrichten`}
+                  className={`flex items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left disabled:opacity-50 ${c.id === activeChat ? 'bg-user text-ink' : 'text-ink2 hover:bg-user'}`}
+                  data-testid="history-item" aria-current={c.id === activeChat ? 'true' : undefined}>
+                  <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                  <span className="shrink-0 text-[11px] text-ink3">{relDate(c.updatedAt)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {historyMsg && <p className="px-1 py-1 text-[12px] text-accent">{historyMsg}</p>}
+        </div>
         <div className="border-t border-line px-4 py-3">
           <div className="text-[11px] uppercase tracking-wider text-ink3">Skills</div>
           {skills.list.length === 0 ? (

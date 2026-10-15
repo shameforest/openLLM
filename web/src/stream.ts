@@ -89,7 +89,9 @@ export function reduceEvent(turn: Turn, e: OcEvent): Turn {
       const info = p.info
       const tok = info?.tokens
       if (!tok || info?.role === 'user') return turn
-      const perMsg = { ...turn.perMsg, [String(info.id ?? 'msg')]: { input: num(tok.input), output: num(tok.output) + num(tok.reasoning) } }
+      // input = everything the model read, including prompt-cache hits (OpenCode reports those separately).
+      const input = num(tok.input) + num(tok.cache?.read) + num(tok.cache?.write)
+      const perMsg = { ...turn.perMsg, [String(info.id ?? 'msg')]: { input, output: num(tok.output) + num(tok.reasoning) } }
       const all = Object.values(perMsg)
       const usage = { input: all.reduce((s, x) => s + x.input, 0), output: all.reduce((s, x) => s + x.output, 0) }
       return { ...turn, perMsg, usage }

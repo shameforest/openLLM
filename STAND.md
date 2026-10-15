@@ -8,7 +8,7 @@ fortschritt: 40
 fortschritt_text: Meilensteine M1–M5 (2 von 5 fertig)
 ---
 ## Stand
-M1 und M2 laufen auf dem Shadow-PC. Neu sind das zensurfreie Qwen3.8 27B als Standard, eine Gedankengang-Leiste rechts und ein Live-Zähler für die Arbeit lokal gegen Claude.
+M1 und M2 laufen auf dem Shadow-PC. Neu sind ein Verlauf, in dem sich Chats fortsetzen lassen, und eine Übersicht in den Einstellungen: Anteil an Claude und gesparte Tokens.
 ## Gerade
 - [ ] Zensurfreies Modell im echten Einsatz prüfen
 ## Als Nächstes
@@ -18,6 +18,8 @@ M1 und M2 laufen auf dem Shadow-PC. Neu sind das zensurfreie Qwen3.8 27B als Sta
 ## Lernen
 - [ ] Was „abliteriert“ bei einem Modell bedeutet
 ## Erledigt
+- [x] 2026-10-15: Verlauf: Chats speichern und fortsetzen
+- [x] 2026-10-15: Übersicht lokal/Claude + gesparte Tokens
 - [x] 2026-10-15: Zensurfreies Modell als Standard + Modellwahl
 - [x] 2026-10-15: Fehler behoben: Denken landete in der Antwort
 - [x] 2026-10-15: Gedankengang in rechter, zuklappbarer Leiste

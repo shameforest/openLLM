@@ -3,6 +3,8 @@ import { CLAUDE_MODELS, LOCAL_MODELS, useSettings } from './settings'
 import { OFFLINE_HINT, companionPost } from './companion'
 import { useSkills } from './skills'
 import { cloneRepo, gitAction, useProjects } from './projects'
+import { useChats } from './chats'
+import { UsageOverview } from './UsageOverview'
 
 // Pull the skill name from the SKILL.md front-matter (`name:` in the --- head); fall back to the file name.
 export function skillNameFrom(content: string, fileName: string): string {
@@ -18,6 +20,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   const s = useSettings()
   const skills = useSkills()
   const projects = useProjects()
+  const chats = useChats()
   const [status, setStatus] = useState('')
   const [skill, setSkill] = useState({ name: '', content: '' })
   const [repoUrl, setRepoUrl] = useState('')
@@ -25,8 +28,8 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   const [gitOut, setGitOut] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Refresh the installed skills and cloned projects whenever the panel opens.
-  useEffect(() => { if (open) { void skills.refresh(); void projects.refresh() } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Refresh the installed skills, cloned projects and the chat totals whenever the panel opens.
+  useEffect(() => { if (open) { void skills.refresh(); void projects.refresh(); void chats.refresh() } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null
 
@@ -84,6 +87,11 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="flex max-h-[92vh] w-full max-w-[620px] flex-col overflow-y-auto rounded-2xl border border-line bg-panel p-5" onClick={(e) => e.stopPropagation()} data-testid="settings">
         <div className="mb-4 text-[17px] font-semibold">Einstellungen</div>
+
+        {/* Totals: local vs Claude over all saved chats */}
+        <Section title="Übersicht: lokal statt Claude" hint="Über alle Chats im Verlauf: wie viel an Claude ausgelagert wurde und wie viele Claude-Tokens dein PC eingespart hat.">
+          <UsageOverview chats={chats.list} loaded={chats.loaded} />
+        </Section>
 
         {/* Global instructions */}
         <Section title="Globale Anweisungen" hint="Gelten für jede Unterhaltung — wie die persönlichen Anweisungen bei Claude.">
