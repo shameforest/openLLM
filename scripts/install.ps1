@@ -7,9 +7,9 @@
 # NOTE: every external command marked "VERIFY" below is from research, not yet run on Windows.
 # The exact OpenCode config path and the Ollama tag are confirmed on the first real run.
 param(
-    # Default local model: the uncensored (abliterated) Qwen3.8 27B, Apache-2.0, 18 GB (checked on ollama.com 2026-10-15).
-    # The original stays selectable in the app: -Model qwen3.8:27b
-    [string]$Model = "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M",
+    # Which local model to download. Empty = the default from config/models.json (the one model list of the app).
+    # Another one from that list: -Model qwen3.8:27b
+    [string]$Model = "",
     [switch]$SkipModel
 )
 
@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $Root = Split-Path -Parent $PSScriptRoot
+if (-not $Model) { $Model = (Get-Content -Raw (Join-Path $Root "config\models.json") | ConvertFrom-Json).default }
 $Logs = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null
 $LogFile = Join-Path $Logs ("install-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
@@ -61,12 +62,23 @@ if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
         Fail "OpenCode wurde nicht installiert. Alternativen: 'choco install opencode' oder 'npm i -g @opencode/cli@latest'."
     }
 } else {
+    # Stay on OpenCode 1.x: version 2 changed the server API and config this app uses (opencode.ai/v2/docs/migrate-v1).
+    # Scoop's "opencode" is 1.x today (v2 is "versions/opencode2"); if an update ever lands on 2.x, roll back.
+    $before = ""
+    try { $before = (opencode --version 2>$null) } catch {}
     scoop update opencode 2>$null
+    $after = ""
+    try { $after = (opencode --version 2>$null) } catch {}
+    if ($after -and -not $after.StartsWith("1.") -and $before.StartsWith("1.")) {
+        scoop reset "opencode@$before" 2>$null
+        Write-Host "  OpenCode $after ist eine neue Hauptversion - zurueck auf $before (OpenDante braucht 1.x)." -ForegroundColor Yellow
+    }
 }
 # PowerShell: try/catch is a statement, not an expression — do it before the Ok line.
 $ocVersion = ""
 try { $ocVersion = (opencode --version 2>$null) } catch {}
-Ok "opencode $ocVersion installiert (Version 1.x erwartet)"
+if ($ocVersion -and -not $ocVersion.StartsWith("1.")) { Fail "OpenCode $ocVersion ist installiert, OpenDante braucht Version 1.x." }
+Ok "opencode $ocVersion installiert (Version 1.x)"
 
 # 3 -------------------------------------------------------------- Ollama (the model server)
 Step 3 "Ollama einrichten (laesst das Modell auf der Grafikkarte laufen)"
@@ -113,14 +125,30 @@ $cfgDir = Join-Path $HOME ".config\opencode"
 New-Item -ItemType Directory -Force -Path $cfgDir, (Join-Path $cfgDir "agents"), (Join-Path $cfgDir "commands"), (Join-Path $cfgDir "skills") | Out-Null
 # opencode.json — keep a user-added Anthropic key (the companion writes it) across updates
 $ocTarget = Join-Path $cfgDir "opencode.json"
+$ocBackup = "$ocTarget.vorher"
 $keepAnthropic = $null
-if (Test-Path $ocTarget) { try { $keepAnthropic = (Get-Content -Raw $ocTarget | ConvertFrom-Json).provider.anthropic } catch {} }
+if (Test-Path $ocTarget) {
+    try { $keepAnthropic = (Get-Content -Raw $ocTarget | ConvertFrom-Json).provider.anthropic } catch {}
+    Copy-Item -Force $ocTarget $ocBackup
+}
 Copy-Item -Force (Join-Path $Root "config\opencode.json") $cfgDir
 if ($keepAnthropic) {
     $oc = Get-Content -Raw $ocTarget | ConvertFrom-Json
     $oc.provider | Add-Member -NotePropertyName anthropic -NotePropertyValue $keepAnthropic -Force
     $oc | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $ocTarget
 }
+# Let OpenCode itself load the new file. Valid JSON is not enough: a key OpenCode does not know inside a block (for
+# example a comment inside "permission") makes the whole config invalid and OpenCode refuses to start.
+$old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$ocCheck = & opencode models ollama 2>&1 | Out-String
+$ocOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $old
+if (-not $ocOk) {
+    if (Test-Path $ocBackup) { Copy-Item -Force $ocBackup $ocTarget }
+    Write-Host ($ocCheck -replace '\x1b\[[0-9;]*m', '')
+    Fail "Die neue OpenCode-Konfiguration ist ungueltig; die bisherige wurde wiederhergestellt."
+}
+Ok "OpenCode-Konfiguration geprueft (opencode models)"
 # AGENTS.md — keep the user's global-instructions block (the companion writes it) across updates
 $agTarget = Join-Path $cfgDir "AGENTS.md"
 $userBlock = ""
@@ -132,8 +160,9 @@ Copy-Item -Force (Join-Path $Root "config\AGENTS.md") $cfgDir
 if ($userBlock) { Add-Content -Encoding UTF8 $agTarget $userBlock }
 Copy-Item -Force (Join-Path $Root "config\agents\*.md") (Join-Path $cfgDir "agents")
 Copy-Item -Force (Join-Path $Root "config\commands\*.md") (Join-Path $cfgDir "commands")
-# Skills (each a folder with SKILL.md); the one shipped is batch-autopilot. Your own Claude Code skills from
-# .claude/skills in a project also work unchanged, so they do not need to be copied here.
+# Skills (each a folder with SKILL.md); shipped: batch-autopilot. Skills uploaded in the app also land here. The
+# launcher hides Claude-Code skills (~/.claude/skills, project .claude/skills) and ~/.agents/skills from the local model
+# (they cost ~8.000 tokens per request); to use one here, upload it in Einstellungen -> Skills.
 Copy-Item -Recurse -Force (Join-Path $Root "skills\*") (Join-Path $cfgDir "skills")
 Ok "Konfiguration (opencode.json, AGENTS.md, Agenten, Befehle, Skills) nach $cfgDir kopiert"
 

@@ -20,19 +20,48 @@ export function describePermission(p: PermissionRequest): { title: string; detai
   }
 }
 
-// Never answered automatically: anything that uploads, throws work away or deletes (deletes are also denied in
-// opencode.json, so they normally never get this far).
-const RISKY = /\bgit\s+(-C\s+\S+\s+)?(push|reset\s+--hard|clean|checkout\s+--|restore)\b|\b(rm|del|rmdir|rd|Remove-Item|format|mkfs|shutdown|Stop-Computer|Restart-Computer)\b/i
+// Never answered automatically — the user decides:
+// - uploading or throwing work away (git push / reset --hard / clean / checkout -- / restore),
+// - deleting, also through aliases (ri, erase, rd …) and system-changing tools; most are also denied in opencode.json,
+// - "download and run" (… | iex, Invoke-Expression, curl … | sh) and interpreter one-liners (python -c, node -e,
+//   powershell -Command, cmd /c): with these any other rule can be bypassed, e.g. python -c "shutil.rmtree(…)".
+const RISKY = new RegExp([
+  String.raw`\bgit\s+(-C\s+\S+\s+)?(push|reset\s+--hard|clean|checkout\s+--|restore)\b`,
+  String.raw`(^|[\s;&|(])(rm|del|erase|ri|rd|rmdir|Remove-Item|Clear-Content|Clear-RecycleBin|format|Format-Volume|mkfs|diskpart|shutdown|Stop-Computer|Restart-Computer|takeown|icacls)(\s|$)`,
+  String.raw`\breg(\.exe)?\s+(delete|add)\b|\bSet-ExecutionPolicy\b`,
+  String.raw`\b(iex|Invoke-Expression)\b|\|\s*(sh|bash|pwsh|powershell)\b`,
+  String.raw`\b(python3?|py)\s+-c\b|\bnode\s+(-e|-p|--eval|--print)\b|\b(powershell|pwsh)(\.exe)?\s+(-c\b|-Command\b|-EncodedCommand\b|-enc\b)|\bcmd(\.exe)?\s+/c\b`,
+].join('|'), 'i')
+
+/** Absolute paths in a command (C:\…, \\server\…, ~\…) that are NOT inside the working folder. */
+export function pathsOutside(text: string, workdir: string): string[] {
+  const norm = (p: string) => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  const wd = workdir ? norm(workdir) : ''
+  const found = text.match(/(?:[a-zA-Z]:[\\/]|\\\\|~[\\/])[^\s"'`;|&<>]*/g) ?? []
+  return found.filter((p) => !wd || !(norm(p) === wd || norm(p).startsWith(wd + '\\')))
+}
 
 /** Message sent with an automatic "no" to a loop, so the model changes course instead of trying the same again. */
 export const LOOP_HINT =
   'Du hast denselben Schritt dreimal wiederholt, ohne weiterzukommen. Wiederhole ihn nicht. Prüfe, woran es scheitert, ' +
   'versuche einen anderen Weg, oder schreibe kurz, was dich blockiert und was du als Nächstes vorschlägst.'
 
-/** What the automatic mode does with a request: allow it once, turn a loop around, or leave it to the user. */
-export function autoDecision(p: PermissionRequest): { reply: 'once' } | { reply: 'reject'; message: string } | null {
+/** What the automatic mode does with a request: allow it once, turn a loop around, or leave it to the user (null).
+ *  Work inside the working folder runs on its own; anything outside it, and anything on the risky list, asks. */
+export function autoDecision(p: PermissionRequest, workdir = ''): { reply: 'once' } | { reply: 'reject'; message: string } | null {
   if (p.permission === 'doom_loop') return { reply: 'reject', message: LOOP_HINT }
+  if (p.permission === 'external_directory') return null // outside the project folder: the user decides
   const text = `${str(p.metadata?.command)} ${(p.patterns ?? []).join(' ')}`
   if (RISKY.test(text)) return null
+  if (p.permission === 'bash' && pathsOutside(text, workdir).length > 0) return null
   return { reply: 'once' }
+}
+
+/** Why a request was left to the user — shown on the card so it is clear it was not forgotten. */
+export function whyAsked(p: PermissionRequest, workdir = ''): string {
+  if (p.permission === 'external_directory') return 'Zugriff außerhalb des Arbeitsordners entscheidest du.'
+  const text = `${str(p.metadata?.command)} ${(p.patterns ?? []).join(' ')}`
+  if (RISKY.test(text)) return 'Hochladen, Löschen, Herunterladen-und-Ausführen und Programm-Einzeiler fragen immer nach.'
+  if (p.permission === 'bash' && pathsOutside(text, workdir).length > 0) return 'Der Befehl greift auf einen Ort außerhalb des Arbeitsordners zu.'
+  return ''
 }

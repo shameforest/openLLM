@@ -23,6 +23,18 @@ const ok = (cond, msg) => { if (!cond) { failed++; console.error('FAIL:', msg) }
 try {
   for (let i = 0; i < 40; i++) { try { if ((await fetch(base + '/health')).ok) break } catch {} await new Promise((r) => setTimeout(r, 100)) }
 
+  // Only the app itself may call the companion (OD-03)
+  const foreign = await fetch(base + '/skills', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://evil.example.com' }, body: '{"name":"x","content":"y"}' })
+  ok(foreign.status === 403, 'a POST from a foreign web page (Origin header) is refused')
+  const foreignGet = await fetch(base + '/chats', { headers: { origin: 'https://evil.example.com' } })
+  ok(foreignGet.status === 403 && !foreignGet.headers.get('access-control-allow-origin'), 'a foreign page cannot read the chat list either')
+  const plain = await fetch(base + '/skills', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{"name":"x","content":"y"}' })
+  ok(plain.status === 415, 'a POST that is not JSON (what a cross-site form can send) is refused')
+  const own = await fetch(base + '/health', { headers: { origin: base } })
+  ok(own.status === 200 && own.headers.get('access-control-allow-origin') === base, 'the app itself (own origin) is allowed and gets CORS')
+  const pre = await fetch(base + '/skills', { method: 'OPTIONS', headers: { origin: 'https://evil.example.com', 'access-control-request-method': 'POST' } })
+  ok(pre.status === 403, 'a foreign CORS preflight is refused')
+
   await post('/settings', { globalInstructions: 'Antworte knapp.', apiKey: 'sk-ant-x', claudeModel: 'claude-opus-5-5' })
   const agents = await fs.readFile(path.join(cfg, 'AGENTS.md'), 'utf8')
   ok(agents.includes('Antworte knapp.') && agents.includes('OPENDANTE-USER-START'), 'global instructions written to AGENTS.md')
@@ -35,11 +47,6 @@ try {
 
   const skillList = await fetch(base + '/skills').then((r) => r.json())
   ok(Array.isArray(skillList) && skillList.some((x) => x.slug === 'test-runner' && x.description === 'runs tests'), 'GET /skills lists the saved skill with its description')
-
-  if (process.platform !== 'win32') { // on Windows this would open the real folder dialog
-    const pf = await post('/pick-folder', {})
-    ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
-  }
 
   // Verlauf
   const chats0 = await fetch(base + '/chats').then((r) => r.json())

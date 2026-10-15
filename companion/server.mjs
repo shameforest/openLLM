@@ -4,7 +4,7 @@
 // save skills, run the updates. The chat itself goes straight to the OpenCode server (port 4096) and needs none of this.
 import http from 'node:http'
 import { promises as fs } from 'node:fs'
-import { createReadStream } from 'node:fs'
+import { createReadStream, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
@@ -15,14 +15,28 @@ const ROOT = process.env.OPENDANTE_ROOT || path.resolve(HERE, '..')
 const DIST = path.join(ROOT, 'web', 'dist')
 const CFG = process.env.OPENCODE_CONFIG_DIR || path.join(os.homedir(), '.config', 'opencode')
 const PORT = Number(process.env.OPENDANTE_COMPANION_PORT || 4097)
-const MODEL = process.env.OPENDANTE_MODEL || 'orcarouter/Qwen3.8-27B-Uncensored:q4_K_M' // default local model (uncensored)
+// Default local model: from config/models.json, the one list shared with the app and the installer.
+const MODEL = process.env.OPENDANTE_MODEL || (() => {
+  try { return JSON.parse(readFileSync(path.join(ROOT, 'config', 'models.json'), 'utf8')).default } catch { return 'qwen3.8:27b' }
+})()
 // An Ollama model name like "qwen3.8:27b" or "user/Model-Name:q4_K_M" — nothing else may reach `ollama pull`.
 const modelOk = (m) => typeof m === 'string' && /^[\w.-]+(\/[\w.-]+)?(:[\w.-]+)?$/.test(m)
 const PROJECTS = process.env.OPENDANTE_PROJECTS || path.join(os.homedir(), 'OpenDante-Projekte')
 const CHATS = path.join(process.env.OPENDANTE_DATA || path.join(os.homedir(), '.opendante'), 'chats')
 
-const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }
-const sendJson = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', ...CORS }); res.end(JSON.stringify(obj)) }
+// Only the app itself may use the companion. Listening on 127.0.0.1 is not enough: any web page open in the same browser
+// can send requests to localhost. So: answer CORS only for our own origins, refuse requests that carry a foreign Origin,
+// and require JSON for every POST (a foreign page cannot send JSON without a CORS preflight, which it does not pass).
+const ALLOWED_ORIGINS = new Set([
+  `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`, // the app window served by this companion
+  'http://127.0.0.1:5173', 'http://localhost:5173',       // the Vite dev server (npm run dev)
+  ...String(process.env.OPENDANTE_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+])
+const originOk = (req) => !req.headers.origin || ALLOWED_ORIGINS.has(req.headers.origin) // no Origin = a local tool, not a page
+const corsFor = (req) => (req.headers.origin && ALLOWED_ORIGINS.has(req.headers.origin)
+  ? { 'access-control-allow-origin': req.headers.origin, vary: 'Origin', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }
+  : {})
+const sendJson = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', ...(res.cors || {}) }); res.end(JSON.stringify(obj)) }
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' }
 
 async function readBody(req) {
@@ -128,19 +142,6 @@ async function fsList(dir) {
   return { path: abs, parent: parent === abs ? '' : parent, dirs } // parent '' = go back to the roots
 }
 
-/** Open the native Windows folder dialog and return the chosen absolute path (kept as a fallback). */
-function pickFolder() {
-  return new Promise((resolve) => {
-    if (process.platform !== 'win32') return resolve({ path: '', note: 'Ordnerwahl gibt es nur unter Windows.' })
-    // FolderBrowserDialog needs a single-threaded apartment (-STA); we write only the chosen path to stdout.
-    const ps = "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Ordner fuer OpenDante waehlen'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }"
-    const child = spawn('powershell.exe', ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { cwd: ROOT })
-    let out = ''
-    child.stdout.on('data', (d) => { out += d.toString() })
-    child.on('error', () => resolve({ path: '', note: 'Ordner-Dialog konnte nicht geoeffnet werden.' }))
-    child.on('close', () => { const p = out.trim(); resolve({ path: p, note: p ? '' : 'Keine Auswahl getroffen.' }) })
-  })
-}
 
 /** Fire an update script and return at once. Windows only (git/powershell/ollama live there). `model` = the local
  *  model chosen in Einstellungen (pulled by "Modelle aktualisieren"); falls back to the default. */
@@ -328,7 +329,12 @@ async function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x')
-  if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end() }
+  res.cors = corsFor(req)
+  if (!originOk(req)) return sendJson(res, 403, { error: 'Fremde Herkunft abgelehnt.' })
+  if (req.method === 'OPTIONS') { res.writeHead(204, res.cors); return res.end() }
+  if (req.method === 'POST' && !String(req.headers['content-type'] || '').startsWith('application/json')) {
+    return sendJson(res, 415, { error: 'Nur JSON-Anfragen.' })
+  }
   try {
     if (url.pathname === '/health') return sendJson(res, 200, { ok: true, service: 'opendante-companion' })
     if (req.method === 'GET' && url.pathname === '/skills') return sendJson(res, 200, await listSkills())
@@ -352,7 +358,6 @@ const server = http.createServer(async (req, res) => {
       const slug = await saveSkill(b.name, b.content)
       return sendJson(res, 200, { ok: true, slug })
     }
-    if (req.method === 'POST' && url.pathname === '/pick-folder') return sendJson(res, 200, await pickFolder())
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
     if (req.method === 'POST' && url.pathname === '/update/models') { const b = await readBody(req); return sendJson(res, 200, runUpdate('models', b.model)) }

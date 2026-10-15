@@ -1,0 +1,9 @@
+{
+  "_note": "The ONE list of local models (Ollama tags). Read by the web app (Einstellungen), the companion (model updates) and install.ps1 (which model to pull). config/opencode.json must list the same ids under provider.ollama.models; web/src/models.test.ts fails if they drift apart. Licenses: all Apache-2.0 (Qwen3.8 27B and its abliterated variants), checked on ollama.com 2026-10-15.",
+  "default": "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M",
+  "models": [
+    { "id": "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M", "name": "Qwen3.8 27B Uncensored", "note": "zensurfrei (abliteriert) · Standard · 18 GB" },
+    { "id": "qwen3.8:27b", "name": "Qwen3.8 27B", "note": "Originalfassung von Alibaba · 17 GB" },
+    { "id": "huihui_ai/Qwen3.8-abliterated:27b-q4_K_M", "name": "Qwen3.8 27B Abliterated (huihui)", "note": "zensurfreie Alternative · 18 GB" }
+  ]
+}

@@ -9,11 +9,12 @@ export async function companionHealth(): Promise<boolean> {
   try { const r = await fetch(COMPANION + '/health', { signal: AbortSignal.timeout(1500) }); return r.ok } catch { return false }
 }
 
+// Every POST is JSON (also without a payload): the companion refuses anything else, which keeps foreign web pages out.
 export async function companionPost<T = unknown>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(COMPANION + path, {
     method: 'POST',
-    headers: body ? { 'content-type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
   })
   if (!res.ok) throw new Error(`${res.status}`)
   return (await res.json().catch(() => ({}))) as T

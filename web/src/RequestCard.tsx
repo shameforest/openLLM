@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import type { PermissionRequest, QuestionRequest } from './api'
-import { describePermission } from './requests'
+import { describePermission, whyAsked } from './requests'
 
 // Shown above the chat box when the agent is waiting on the user: a permission prompt (a command, a file, a loop) or a
 // multiple-choice question. Answering it here lets the agent continue instead of hanging. One request at a time (the
 // oldest), so the user is never buried.
-export function RequestCard({ perms, questions, autoAllow, onPermission, onQuestion, onReject }: {
+export function RequestCard({ perms, questions, autoAllow, workdir, onPermission, onQuestion, onReject }: {
   perms: PermissionRequest[]
   questions: QuestionRequest[]
   autoAllow: boolean
+  workdir: string
   onPermission: (id: string, reply: 'once' | 'always' | 'reject', message?: string) => void
   onQuestion: (id: string, answers: string[][]) => void
   onReject: (id: string) => void
@@ -17,10 +18,10 @@ export function RequestCard({ perms, questions, autoAllow, onPermission, onQuest
   if (q) return <QuestionBox key={q.id} q={q} onAnswer={onQuestion} onReject={onReject} />
   const p = perms[0]
   if (!p) return null
-  return <PermissionBox key={p.id} p={p} autoAllow={autoAllow} onReply={onPermission} more={perms.length - 1} />
+  return <PermissionBox key={p.id} p={p} autoAllow={autoAllow} why={whyAsked(p, workdir)} onReply={onPermission} more={perms.length - 1} />
 }
 
-function PermissionBox({ p, autoAllow, onReply, more }: { p: PermissionRequest; autoAllow: boolean; onReply: (id: string, reply: 'once' | 'always' | 'reject', message?: string) => void; more: number }) {
+function PermissionBox({ p, autoAllow, why, onReply, more }: { p: PermissionRequest; autoAllow: boolean; why: string; onReply: (id: string, reply: 'once' | 'always' | 'reject', message?: string) => void; more: number }) {
   const { title, detail } = describePermission(p)
   const loop = p.permission === 'doom_loop'
   return (
@@ -48,7 +49,7 @@ function PermissionBox({ p, autoAllow, onReply, more }: { p: PermissionRequest; 
         {loop
           ? 'Der Agent hat sich dreimal im selben Schritt gedreht. „Anders weitermachen“ bittet ihn um einen anderen Weg.'
           : autoAllow
-          ? 'Dieser Schritt wartet auf dich (Hochladen oder Löschen fragt immer nach). Harmlose Befehle laufen sonst automatisch — abschaltbar unter Modi.'
+          ? `${why || 'Dieser Schritt wartet auf dich.'} Harmlose Befehle im Arbeitsordner laufen sonst automatisch — abschaltbar unter Modi.`
           : '„Befehle automatisch erlauben“ ist aus (Modi) — darum fragt jeder Befehl einzeln nach.'}
       </p>
     </div>

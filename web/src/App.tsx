@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clock } from './eta'
 import { type Progress, type StepSample, type TaskSample, estimateStep, estimateTask, finishStep, reduceProgress, smoothEnd, startProgress } from './progress'
-import { type OcEvent, type PermissionRequest, type QuestionRequest, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, sendPrompt } from './api'
+import { type OcEvent, type PermissionRequest, type QuestionRequest, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, sendPrompt, serverPaths } from './api'
 import { autoDecision } from './requests'
 import { RequestCard } from './RequestCard'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
@@ -139,6 +139,8 @@ export default function App() {
   const [perms, setPerms] = useState<PermissionRequest[]>([])
   const [questions, setQuestions] = useState<QuestionRequest[]>([])
   const autoReplied = useRef<Set<string>>(new Set()) // permission ids auto-answered, so we never answer twice
+  const [serverDir, setServerDir] = useState('') // the server's own folder, used when no working folder is chosen
+  const effectiveDir = modes.workdir || serverDir
 
   // Feed one event into the active turn, the progress, and the pending-request lists.
   const feed = useCallback((e: OcEvent) => {
@@ -164,7 +166,10 @@ export default function App() {
     const check = () => health().then((h) => {
       if (!alive) return
       setOnline(!!h)
-      if (h) { disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir); syncRequests() }
+      if (h) {
+        disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir); syncRequests()
+        void serverPaths().then((p) => { if (alive) setServerDir(p.directory || '') }).catch(() => {})
+      }
     })
     check()
     const id = window.setInterval(() => { if (alive && online !== true) check() }, 5000)
@@ -185,12 +190,12 @@ export default function App() {
     if (!modes.autoAllow) return
     for (const p of perms) {
       if (autoReplied.current.has(p.id)) continue
-      const d = autoDecision(p)
+      const d = autoDecision(p, effectiveDir)
       if (!d) continue
       autoReplied.current.add(p.id)
       void answerPerm(p.id, d.reply, 'message' in d ? d.message : undefined)
     }
-  }, [perms, modes.autoAllow, answerPerm])
+  }, [perms, modes.autoAllow, answerPerm, effectiveDir])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, run])
 
@@ -436,7 +441,7 @@ export default function App() {
               )
             )}
             {(perms.length > 0 || questions.length > 0) && (
-              <RequestCard perms={perms} questions={questions} autoAllow={modes.autoAllow}
+              <RequestCard perms={perms} questions={questions} autoAllow={modes.autoAllow} workdir={effectiveDir}
                 onPermission={(id, reply, msg) => void answerPerm(id, reply, msg)}
                 onQuestion={(id, answers) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void replyQuestion(id, answers, modes.workdir).catch(() => {}) }}
                 onReject={(id) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void rejectQuestion(id, modes.workdir).catch(() => {}) }} />

@@ -68,6 +68,8 @@ export const replyQuestion = (id: string, answers: string[][], dir?: string) =>
   call<boolean>(`/question/${id}/reply${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ answers }) })
 export const rejectQuestion = (id: string, dir?: string) =>
   call<boolean>(`/question/${id}/reject${dirQuery(dir)}`, { method: 'POST' })
+/** The server's own folders; `directory` is where the agent works when no folder is chosen. */
+export const serverPaths = (dir?: string) => call<{ home: string; directory: string }>(`/path${dirQuery(dir)}`)
 /** busy / idle / retry (after a model error, with attempt and reason) for every session in the folder. */
 export const sessionStatus = (dir?: string) => call<Record<string, SessionStatus>>(`/session/status${dirQuery(dir)}`)
 /** All messages of a session with their parts — used to re-sync when live events were missed. */
