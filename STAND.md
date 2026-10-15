@@ -8,16 +8,18 @@ fortschritt: 40
 fortschritt_text: Meilensteine M1–M5 (2 von 5 fertig)
 ---
 ## Stand
-M1 und M2 laufen auf dem Shadow-PC. Neu sind ein Verlauf, in dem sich Chats fortsetzen lassen, und eine Übersicht in den Einstellungen: Anteil an Claude und gesparte Tokens.
+M1 und M2 laufen auf dem Shadow-PC, das zensurfreie Modell erledigt Aufträge mit Werkzeugen. Die Fortschrittsanzeige arbeitet jetzt Schritt für Schritt mit einem realistischen Countdown.
 ## Gerade
-- [ ] Zensurfreies Modell im echten Einsatz prüfen
+- [ ] (du) Neue Anzeige im Alltag testen
 ## Als Nächstes
-- [ ] (du) Update einspielen und Modell laden (18 GB)
-- [ ] (du) Testauftrag mit Werkzeugen: klappt alles?
+- [ ] (du) Update hochladen und OpenDante neu starten
 - [ ] M3: Browser-Tests über Playwright einschalten
+- [ ] Chats im Verlauf löschen/umbenennen (falls gewünscht)
 ## Lernen
 - [ ] Was „abliteriert“ bei einem Modell bedeutet
 ## Erledigt
+- [x] 2026-10-15: Fortschritt Schritt für Schritt + echter Countdown
+- [x] 2026-10-15: Zensurfreies Modell mit Werkzeugen bewiesen
 - [x] 2026-10-15: Verlauf: Chats speichern und fortsetzen
 - [x] 2026-10-15: Übersicht lokal/Claude + gesparte Tokens
 - [x] 2026-10-15: Zensurfreies Modell als Standard + Modellwahl

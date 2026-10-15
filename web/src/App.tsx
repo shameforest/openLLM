@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { type AnswerSample, type Timing, elapsedLabel, fraction, remainingLabel } from './eta'
+import { clock } from './eta'
+import { type Progress, type StepSample, type TaskSample, estimateStep, estimateTask, finishStep, reduceProgress, smoothEnd, startProgress } from './progress'
 import { type OcEvent, abort, connectEvents, createSession, health, sendPrompt } from './api'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
 import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
@@ -13,8 +14,8 @@ import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 
 // The OpenDante desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
-// two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
-// simulated answer so the window is never dead — the same render path is used either way.
+// step-by-step progress readout (progress.ts: current step, its countdown, the whole task). When the server is not
+// running it falls back to a simulated answer so the window is never dead — the same render path is used either way.
 // The main window shows only final answers; the process (thinking, tool steps, Claude handoffs) lives in the
 // right-hand Gedankengang sidebar.
 
@@ -27,7 +28,12 @@ function toThought(key: string, prompt: string, m: Msg, live: boolean): Thought 
   return { key, prompt, thinking, tools: m.tools ?? [], offloads: offloadTasks(split.answer), live }
 }
 
-const KEY = 'openllm.samples'
+// What this PC learned about step and task durations (for the countdowns). Kept per browser profile.
+const STEPS_KEY = 'openllm.steps'
+const TASKS_KEY = 'openllm.tasks'
+const loadList = <T,>(key: string): T[] => { try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+const saveList = (key: string, v: unknown[]) => { try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* private mode */ } }
+
 const DEMO = (
   'Klar. Ich lege die Datei an, pruefe den Aufbau und fuehre die Tests aus, damit wir sicher sind, dass alles ' +
   'wirklich laeuft. Falls etwas fehlschlaegt, sage ich dir genau, woran es lag und was ich geaendert habe, und fasse ' +
@@ -35,14 +41,13 @@ const DEMO = (
 ).split(' ')
 const SIM_WPS = 8 // words/second for the fallback preview
 
-const loadHistory = (): AnswerSample[] => { try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch { return [] } }
-
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
-  const [run, setRun] = useState<{ startedAt: number; turn: Turn; sim?: boolean } | null>(null)
+  const [run, setRun] = useState<{ startedAt: number; turn: Turn; prog: Progress; sim?: boolean; stopped?: boolean } | null>(null)
   const [usage, setUsage] = useState<ChatUsage>(emptyUsage) // tokens in this chat: local vs Claude
-  const [history, setHistory] = useState<AnswerSample[]>(loadHistory)
+  const [stepSamples, setStepSamples] = useState<StepSample[]>(() => loadList(STEPS_KEY))
+  const [taskSamples, setTaskSamples] = useState<TaskSample[]>(() => loadList(TASKS_KEY))
   const [online, setOnline] = useState<boolean | null>(null)
   const [, setTick] = useState(0)
   const modes = useSettings()
@@ -127,7 +132,7 @@ export default function App() {
 
   // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
   const feed = useCallback((e: OcEvent) => {
-    setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: reduceEvent(prev.turn, e) } : prev))
+    setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: reduceEvent(prev.turn, e), prog: reduceProgress(prev.prog, e, Date.now()) } : prev))
   }, [])
 
   // Connect to the local server; retry every 5 s while it is down (it shares the GPU with OpenDali).
@@ -160,10 +165,17 @@ export default function App() {
     setMessages((m) => [...m, { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error }])
     if (!run.sim) setUsage((u) => addLocal(u, t)) // the offline preview is not real work, so it is not counted
     if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t)
-    if (!t.error && produced(t) > 0) {
-      const next = [...history, { ms: Date.now() - run.startedAt, tokens: produced(t) }].slice(-20)
-      setHistory(next)
-      try { localStorage.setItem(KEY, JSON.stringify(next)) } catch { /* private mode */ }
+    // Learn how long steps and tasks take on this PC (real runs only; a step cut off by "Stopp" is not a fair sample).
+    if (!run.sim && !t.error && produced(t) > 0) {
+      const fin = run.stopped ? run.prog : finishStep(run.prog, Date.now())
+      if (fin.done.length) {
+        const steps = [...stepSamples, ...fin.done].slice(-60)
+        setStepSamples(steps); saveList(STEPS_KEY, steps)
+      }
+      if (!run.stopped) {
+        const tasks = [...taskSamples, { ms: Date.now() - run.startedAt, steps: fin.step }].slice(-30)
+        setTaskSamples(tasks); saveList(TASKS_KEY, tasks)
+      }
     }
     setRun(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,7 +205,7 @@ export default function App() {
     setInput('')
     setMessages((m) => [...m, { role: 'user', text: prompt }])
     const startedAt = Date.now()
-    setRun({ startedAt, turn: emptyTurn(), sim: !online })
+    setRun({ startedAt, turn: emptyTurn(), prog: startProgress(startedAt), sim: !online })
     if (online) {
       // A real chat goes into the Verlauf (the offline preview does not).
       if (!chatRef.current) {
@@ -258,7 +270,7 @@ export default function App() {
   async function stopRun() {
     simRef.current() // stop the offline preview if it is the one running
     if (sessionRef.current) await abort(sessionRef.current, modes.workdir)
-    setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: { ...prev.turn, done: true } } : prev))
+    setRun((prev) => (prev && !prev.turn.done ? { ...prev, stopped: true, turn: { ...prev.turn, done: true } } : prev))
   }
 
   // Let the user hand the agent a real folder on this PC. The browser can't read a folder path, so the local helper
@@ -392,7 +404,7 @@ export default function App() {
                 </div>
               )
             )}
-            {run && !run.turn.done && <Clock startedAt={run.startedAt} chars={produced(run.turn)} thinking={run.turn.text === ''} history={history} />}
+            {run && !run.turn.done && <Clock startedAt={run.startedAt} prog={run.prog} tools={run.turn.tools} steps={stepSamples} tasks={taskSamples} model={modes.localModel} />}
             <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
               <div className="relative">
                 <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
@@ -435,7 +447,8 @@ export default function App() {
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
+      <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+@keyframes slide { 0% { left: -33% } 100% { left: 100% } }`}</style>
     </div>
   )
 }
@@ -496,24 +509,96 @@ function UsageReadout({ u }: { u: ChatUsage }) {
   )
 }
 
-function Clock({ startedAt, chars, thinking, history }: { startedAt: number; chars: number; thinking: boolean; history: AnswerSample[] }) {
-  const t: Timing = { startedAt, now: Date.now(), tokens: chars }
+// The live progress card above the chat box (re-rendered ~10×/s by the parent): which step the agent is on and what it
+// is doing, a countdown until that step is done, the speed, and an estimate for the whole task. The bar fills per step;
+// while a tool runs (its duration depends on the command) it shows a moving stripe instead.
+function Clock({ startedAt, prog, tools, steps, tasks, model }: { startedAt: number; prog: Progress; tools: ToolCall[]; steps: StepSample[]; tasks: TaskSample[]; model: string }) {
+  const now = Date.now()
+  const est = estimateStep(prog, steps, now)
+  const runningTool = tools.find((t) => t.status === 'running' || t.status === 'pending')
+
+  // Is the model already in the graphics card? After a few idle minutes Ollama unloads it, and loading 18 GB takes
+  // about a minute — ask Ollama every 2 s so that wait is named honestly instead of shown as a countdown.
+  const [modelReady, setModelReady] = useState<boolean | null>(null)
+  useEffect(() => {
+    let alive = true
+    const want = model.toLowerCase()
+    const check = () => fetch('http://127.0.0.1:11434/api/ps')
+      .then((r) => r.json())
+      .then((j) => { if (alive) setModelReady(Array.isArray(j.models) && j.models.some((m: { name?: string; model?: string }) => [m.name, m.model].some((n) => String(n).toLowerCase() === want))) })
+      .catch(() => { if (alive) setModelReady(null) })
+    check()
+    const id = window.setInterval(check, 2000)
+    return () => { alive = false; window.clearInterval(id) }
+  }, [model])
+  const loading = est.phase === 'prefill' && modelReady === false
+  // Right after a load the model reads the whole instruction block once without its cache (measured: ~25 s) — expected.
+  const loadedInStep = useRef<number | null>(null)
+  if (loading) loadedInStep.current = prog.step
+  const afterLoad = est.phase === 'prefill' && !loading && loadedInStep.current === prog.step
+  const overdue = est.phase === 'prefill' && est.overrun && !loading // first output later than usual
+  const long = est.overrun && est.phase !== 'prefill' // step itself longer than usual
+
+  // When did we first see the running tool (for "läuft seit …")? Kept across renders.
+  const toolSeen = useRef<Record<string, number>>({})
+  if (runningTool && !toolSeen.current[runningTool.id]) toolSeen.current[runningTool.id] = now
+
+  // Smooth the countdowns: ease the predicted end time instead of jumping with every speed wobble; reset per step.
+  const stepEnd = useRef<{ step: number; end: number; at: number } | null>(null)
+  const prevEnd = stepEnd.current?.step === prog.step ? stepEnd.current : null
+  const end = smoothEnd(prevEnd?.end ?? null, now + est.remainingMs, prevEnd ? now - prevEnd.at : 0)
+  stepEnd.current = { step: prog.step, end, at: now }
+  const stepLeft = Math.max(1000, end - now)
+  const task = estimateTask(prog.step, stepLeft, tasks)
+
+  const indeterminate = !!runningTool || est.phase === 'between' || loading || overdue || long
+  const doing = runningTool
+    ? `führt aus: ${runningTool.tool}${runningTool.title ? ` · ${runningTool.title}` : ''}`
+    : loading ? 'lädt das Modell in die Grafikkarte…'
+    : est.phase === 'prefill' ? (prog.step === 1 ? 'liest den Auftrag ein…' : 'liest die Ergebnisse ein…')
+    : est.phase === 'thinking' ? 'denkt nach…'
+    : est.phase === 'writing' ? 'schreibt…'
+    : 'bereitet den nächsten Schritt vor…'
+
+  const stepText = runningTool
+    ? `läuft seit ${clock(now - toolSeen.current[runningTool.id])} · Dauer hängt vom Befehl ab`
+    : est.phase === 'between' ? 'gleich geht es weiter'
+    : loading ? `seit ${clock(est.stepElapsedMs)} · einmalig nach einer Pause, dauert etwa 1 Min. · danach ~${clock(est.writeMs)}`
+    : overdue && afterLoad ? `seit ${clock(est.stepElapsedMs)} · nach dem Laden liest es alles einmal komplett ein · danach ~${clock(est.writeMs)}`
+    : overdue ? `erste Ausgabe dauert länger als üblich (seit ${clock(est.stepElapsedMs)}) · danach ~${clock(est.writeMs)}`
+    : long ? `Schritt ${prog.step} dauert länger als üblich (seit ${clock(est.stepElapsedMs)})`
+    : `Schritt ${prog.step} fertig in ~${clock(stepLeft)}${est.learned ? '' : ' (grob)'}`
+  const taskText = task.remainingMs != null
+    ? `Gesamt ~${clock(task.remainingMs)} · typisch ${task.typicalSteps} Schritte`
+    : task.typicalSteps != null ? `Gesamt offen · schon mehr Schritte als üblich (${task.typicalSteps})`
+    : `Gesamt offen · lernt aus deinen Aufgaben (${Math.min(tasks.length, 3)}/3)`
+
   return (
     <div className="mb-2 rounded-xl border border-line bg-panel px-4 py-2.5" data-testid="clock">
-      <div className="flex items-center justify-between text-[13px]">
-        <span className="inline-flex items-center gap-2 text-ink2">
-          <span className="size-2 rounded-full bg-live" style={{ animation: 'pulse 1.2s ease-in-out infinite' }} />
-          {thinking ? 'denkt nach…' : 'schreibt…'}
+      <div className="flex items-center justify-between gap-3 text-[13px]">
+        <span className="inline-flex min-w-0 items-center gap-2 text-ink2">
+          <span className="size-2 shrink-0 rounded-full bg-live" style={{ animation: 'pulse 1.2s ease-in-out infinite' }} />
+          <span className="shrink-0 font-medium text-ink" data-testid="clock-step">Schritt {prog.step}</span>
+          <span className="truncate" data-testid="clock-doing">{doing}</span>
         </span>
-        <span className="mono flex items-center gap-4">
-          <span title="vergangene Zeit">{elapsedLabel(t)}</span>
-          <span className="text-ink3" title="geschätzte Restzeit (lernt aus früheren Antworten)">
-            {remainingLabel(t, history) === '…' ? 'Rest: lernt noch' : `noch ${remainingLabel(t, history)}`}
-          </span>
-        </span>
+        <span className="mono shrink-0" title="Zeit seit dem Absenden">{clock(now - startedAt)}</span>
       </div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">
-        <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${(fraction(t, history) ?? 0.04) * 100}%` }} />
+      <div className="relative mt-2 h-1 overflow-hidden rounded-full bg-line" role="progressbar" aria-label={`Schritt ${prog.step}`}
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={indeterminate ? undefined : Math.round(est.fraction * 100)}>
+        {indeterminate
+          ? <div className="absolute inset-y-0 w-1/3 rounded-full bg-accent/70" style={{ animation: 'slide 1.4s ease-in-out infinite' }} />
+          : <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${Math.max(2, est.fraction * 100)}%` }} />}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5 text-[12px] text-ink3">
+        <span className="mono" data-testid="clock-countdown"
+          title={est.learned ? 'Aus den letzten Schritten auf deinem PC und der aktuellen Schreibgeschwindigkeit.' : 'Noch grob: Erfahrungswerte für dieses Modell. Nach 3 fertigen Schritten auf deinem PC wird es genauer.'}>
+          {stepText}
+        </span>
+        {est.charsPerSec != null && <span className="mono" title="aktuelle Schreibgeschwindigkeit (~4 Zeichen = 1 Token)">≈ {Math.round(est.charsPerSec / 4)} Tokens/s</span>}
+        <span className="mono" data-testid="clock-task"
+          title="Wie viele Schritte ein Auftrag braucht, entscheidet die KI selbst. Die Schätzung nimmt die typische Schrittzahl deiner bisherigen Aufträge.">
+          {taskText}
+        </span>
       </div>
     </div>
   )
