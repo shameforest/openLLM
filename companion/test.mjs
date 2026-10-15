@@ -57,6 +57,26 @@ try {
   const badGet = await fetch(base + '/chats/..%2F..%2Fx').then((r) => r.json())
   ok(badGet.error, 'loading a malformed chat id is rejected')
 
+  // Chat rename + delete
+  await post('/chats/rename', { id: 'chat-test-0001', title: 'Neuer Name' })
+  const renamed = (await fetch(base + '/chats').then((r) => r.json())).find((c) => c.id === 'chat-test-0001')
+  ok(renamed && renamed.title === 'Neuer Name', 'POST /chats/rename changes the title')
+  ok((await fetch(base + '/chats/chat-test-0001').then((r) => r.json())).title === 'Neuer Name', 'rename also updates the full chat file')
+  const del = await post('/chats/delete', { id: 'chat-test-0002' })
+  ok(del.ok && del.id === 'chat-test-0002', 'POST /chats/delete reports success')
+  ok(!(await fetch(base + '/chats').then((r) => r.json())).some((c) => c.id === 'chat-test-0002'), 'deleted chat is gone from the list')
+  const badDel = await post('/chats/delete', { id: '../etc' })
+  ok(badDel.error && /Kennung/.test(badDel.error), 'delete rejects a malformed id')
+
+  // Filesystem browser
+  const roots = await fetch(base + '/fs').then((r) => r.json())
+  ok(Array.isArray(roots.dirs) && roots.dirs.length > 0 && roots.parent === null, 'GET /fs lists roots when no path is given')
+  const sub = await fetch(base + '/fs?path=' + encodeURIComponent(data)).then((r) => r.json())
+  ok(sub.path && Array.isArray(sub.dirs) && sub.dirs.some((d) => d.name === 'chats'), 'GET /fs?path lists sub-folders (finds the chats folder)')
+  ok(typeof sub.parent === 'string', 'GET /fs returns a parent path for going up')
+  const bad = await fetch(base + '/fs?path=' + encodeURIComponent(path.join(data, 'gibt-es-nicht'))).then((r) => r.json())
+  ok(bad.error && /lesbar/.test(bad.error), 'GET /fs on a missing folder errors cleanly')
+
   const badModel = await post('/update/models', { model: 'qwen; rm -rf /' })
   ok(badModel.error && /Modellname/.test(badModel.error), 'model update rejects a malformed model name (nothing is run)')
 

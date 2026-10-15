@@ -54,6 +54,8 @@ interface State {
   refresh: () => Promise<boolean>
   save: (chat: SavedChat) => Promise<void>
   load: <M>(id: string) => Promise<SavedChat<M>>
+  rename: (id: string, title: string) => Promise<void>
+  remove: (id: string) => Promise<void>
 }
 
 export const useChats = create<State>()((set, get) => ({
@@ -77,5 +79,16 @@ export const useChats = create<State>()((set, get) => ({
     const chat = await r.json()
     if (!r.ok || !Array.isArray(chat.messages)) throw new Error(chat.error || 'Chat nicht gefunden.')
     return chat as SavedChat<M>
+  },
+  rename: async (id, title) => {
+    const t = title.trim()
+    if (!t) return
+    set({ list: get().list.map((c) => (c.id === id ? { ...c, title: t } : c)) }) // optimistic
+    const meta = await companionPost<ChatMeta>('/chats/rename', { id, title: t })
+    if (meta && meta.id) set({ list: get().list.map((c) => (c.id === id ? meta : c)) })
+  },
+  remove: async (id) => {
+    set({ list: get().list.filter((c) => c.id !== id) }) // optimistic
+    await companionPost('/chats/delete', { id }).catch(() => {})
   },
 }))

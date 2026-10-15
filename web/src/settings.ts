@@ -31,10 +31,13 @@ interface State extends Modes {
   apiKey: string
   claudeModel: string
   localModel: string // Ollama tag of the local model the agent runs on
-  workdir: string // the folder on disk the agent reads/edits/runs in ('' = the server's own folder)
+  workdir: string // the active folder on disk the agent reads/edits/runs in ('' = the server's own folder)
+  folders: string[] // saved folders to switch between quickly (absolute paths)
   thinkingOpen: boolean // right-hand "Gedankengang" sidebar shown (true) or folded away (false)
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'thinkingOpen'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen'>>) => void
+  addFolders: (paths: string[]) => void // remember folders and make the first one active
+  removeFolder: (path: string) => void
 }
 
 export const useSettings = create<State>()(
@@ -49,9 +52,21 @@ export const useSettings = create<State>()(
       claudeModel: 'claude-opus-5-5',
       localModel: LOCAL_MODELS[0].id,
       workdir: '',
+      folders: [],
       thinkingOpen: false,
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
       set: (p) => set(p),
+      addFolders: (paths) => set((s) => {
+        const clean = paths.map((p) => p.trim()).filter(Boolean)
+        if (!clean.length) return {}
+        const folders = [...s.folders]
+        for (const p of clean) if (!folders.includes(p)) folders.push(p)
+        return { folders, workdir: clean[0] } // switching happens in App's workdir effect
+      }),
+      removeFolder: (path) => set((s) => ({
+        folders: s.folders.filter((f) => f !== path),
+        workdir: s.workdir === path ? '' : s.workdir, // removing the active folder falls back to the default
+      })),
     }),
     { name: 'openllm.modes' },
   ),

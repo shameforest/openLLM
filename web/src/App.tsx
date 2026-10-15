@@ -6,12 +6,12 @@ import { autoDecision } from './requests'
 import { RequestCard } from './RequestCard'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
 import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
-import { companionPost } from './companion'
 import { expandSkillCommand, useSkills } from './skills'
+import { FolderPicker, baseName } from './FolderPicker'
 import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, hideOffloadMarkers, offloadTasks } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, usageSplit } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
-import { chatTitle, newChatId, relDate, useChats } from './chats'
+import { type ChatMeta, chatTitle, newChatId, relDate, useChats } from './chats'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 
@@ -58,7 +58,7 @@ export default function App() {
   const [modiOpen, setModiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
-  const [folderMsg, setFolderMsg] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -316,22 +316,13 @@ export default function App() {
     setRun((prev) => (prev && !prev.turn.done ? { ...prev, stopped: true, turn: { ...prev.turn, done: true } } : prev))
   }
 
-  // Let the user hand the agent a real folder on this PC. The browser can't read a folder path, so the local helper
-  // service opens the native folder dialog and returns the chosen absolute path; we then work in that folder.
-  async function pickFolder() {
-    setFolderMsg('Ordner-Auswahl geöffnet…')
-    try {
-      const r = await companionPost<{ path?: string; note?: string }>('/pick-folder')
-      if (r.path) {
-        modes.set({ workdir: r.path }) // the workdir effect starts a fresh session
-        setFolderMsg(''); setPlusOpen(false)
-      } else {
-        setFolderMsg(r.note || 'Keine Auswahl getroffen.')
-      }
-    } catch {
-      setFolderMsg('Der lokale Dienst läuft noch nicht — Ordnerwahl erst nach dem Start von OpenDante.')
-    }
+  // Add one or more folders (from the in-app browser) and switch to the first. The workdir effect starts a fresh session.
+  function addFolders(paths: string[]) {
+    if (paths.length) modes.addFolders(paths)
+    setPlusOpen(false)
   }
+  // Switch to a saved folder.
+  const switchFolder = (path: string) => { modes.set({ workdir: path }); setPlusOpen(false) }
 
   // The process of every answer, for the right-hand sidebar (the live turn last).
   const thoughts: Thought[] = []
@@ -370,13 +361,10 @@ export default function App() {
           ) : (
             <div className="flex flex-col gap-0.5 pb-2">
               {chats.list.map((c) => (
-                <button key={c.id} onClick={() => void openChat(c.id)} disabled={running && c.id !== activeChat}
-                  title={`${c.title}\n${c.workdir || 'Standardordner'} · ${c.messages} Nachrichten`}
-                  className={`flex items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left disabled:opacity-50 ${c.id === activeChat ? 'bg-user text-ink' : 'text-ink2 hover:bg-user'}`}
-                  data-testid="history-item" aria-current={c.id === activeChat ? 'true' : undefined}>
-                  <span className="min-w-0 flex-1 truncate">{c.title}</span>
-                  <span className="shrink-0 text-[11px] text-ink3">{relDate(c.updatedAt)}</span>
-                </button>
+                <HistoryItem key={c.id} c={c} active={c.id === activeChat} disabled={running && c.id !== activeChat}
+                  onOpen={() => void openChat(c.id)}
+                  onRename={(title) => void chats.rename(c.id, title)}
+                  onDelete={() => { if (c.id === activeChat) startNewChat(); void chats.remove(c.id) }} />
               ))}
             </div>
           )}
@@ -458,18 +446,30 @@ export default function App() {
               <div className="relative">
                 <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
                 {plusOpen && (
-                  <div className="absolute bottom-11 left-0 z-10 w-72 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
-                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => void pickFolder()} data-testid="pick-folder">📁 Ordner auf diesem PC wählen…</button>
-                    <div className="px-3 py-1.5 text-[12px] text-ink3">
-                      Arbeitsordner: <span className="mono break-all text-ink2">{modes.workdir || 'Serverordner (Standard)'}</span>
-                    </div>
-                    {modes.workdir && (
-                      <button className="w-full rounded-lg px-3 py-1.5 text-left text-ink3 hover:bg-user" onClick={() => { modes.set({ workdir: '' }); setPlusOpen(false) }}>↺ Auf Standardordner zurücksetzen</button>
+                  <div className="absolute bottom-11 left-0 z-10 w-80 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setPickerOpen(true); setPlusOpen(false) }} data-testid="pick-folder">📁 Ordner hinzufügen…</button>
+                    {modes.folders.length > 0 && (
+                      <div className="mt-1 border-t border-line pt-1">
+                        <div className="px-3 py-1 text-[11px] uppercase tracking-wider text-ink3">Arbeitsordner</div>
+                        {modes.folders.map((f) => (
+                          <div key={f} className={`flex items-center gap-1 rounded-lg px-2 py-1 ${f === modes.workdir ? 'bg-user' : 'hover:bg-user'}`} data-testid="folder-row">
+                            <button className="min-w-0 flex-1 text-left" onClick={() => switchFolder(f)} title={f} data-testid="folder-switch">
+                              <span className="flex items-center gap-1.5">
+                                <span className={`size-1.5 shrink-0 rounded-full ${f === modes.workdir ? 'bg-accent' : 'bg-transparent'}`} />
+                                <span className="truncate text-ink2">{baseName(f)}</span>
+                              </span>
+                              <span className="mono ml-3 block truncate text-[11px] text-ink3">{f}</span>
+                            </button>
+                            <button className="shrink-0 rounded-md px-1.5 py-1 text-ink3 hover:bg-line hover:text-ink2" title="Aus der Liste entfernen"
+                              onClick={() => modes.removeFolder(f)} data-testid="folder-remove">✕</button>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                    {folderMsg && <div className="px-3 py-1.5 text-[12px] text-accent">{folderMsg}</div>}
-                    <div className="my-1 border-t border-line" />
-                    <div className="rounded-lg px-3 py-2 text-ink3">Datei anhängen (bald)</div>
-                    <div className="rounded-lg px-3 py-2 text-ink3">Kontext / Referenz einfügen (bald)</div>
+                    <div className="mt-1 border-t border-line px-3 py-1.5 text-[12px] text-ink3">
+                      Aktiv: <span className="mono break-all text-ink2">{modes.workdir ? baseName(modes.workdir) : 'Serverordner (Standard)'}</span>
+                      {modes.workdir && <button className="ml-2 text-ink3 underline hover:text-ink2" onClick={() => { modes.set({ workdir: '' }); setPlusOpen(false) }}>Standard</button>}
+                    </div>
                   </div>
                 )}
               </div>
@@ -493,6 +493,7 @@ export default function App() {
           </div>
         </div>
       </main>
+      <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFolders} />
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
@@ -504,6 +505,48 @@ export default function App() {
 
 // One chat entry. Assistant entries show ONLY the final answer: thinking, tool steps and the <<<CLAUDE handoff text
 // live in the Gedankengang sidebar.
+// One row in the Verlauf: click to reopen; on hover, rename (inline) or delete (asks once).
+function HistoryItem({ c, active, disabled, onOpen, onRename, onDelete }: {
+  c: ChatMeta; active: boolean; disabled: boolean; onOpen: () => void; onRename: (title: string) => void; onDelete: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(c.title)
+  const [confirm, setConfirm] = useState(false)
+
+  if (editing) {
+    const save = () => { const t = name.trim(); if (t && t !== c.title) onRename(t); setEditing(false) }
+    return (
+      <input autoFocus className="w-full rounded-md border border-accent bg-bg px-2 py-1.5 text-[13px] outline-none" value={name}
+        onChange={(e) => setName(e.target.value)} onBlur={save} data-testid="history-rename-input"
+        onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setName(c.title); setEditing(false) } }} />
+    )
+  }
+  return (
+    <div className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ${active ? 'bg-user text-ink' : 'text-ink2 hover:bg-user'} ${disabled ? 'opacity-50' : ''}`}
+      data-testid="history-item" aria-current={active ? 'true' : undefined}>
+      <button className="min-w-0 flex-1 text-left disabled:cursor-default" onClick={onOpen} disabled={disabled}
+        title={`${c.title}\n${c.workdir || 'Standardordner'} · ${c.messages} Nachrichten`}>
+        <span className="block truncate">{c.title}</span>
+      </button>
+      {confirm ? (
+        <span className="flex shrink-0 items-center gap-1 text-[11px]">
+          <span className="text-ink3">löschen?</span>
+          <button className="rounded px-1 text-red-400 hover:bg-line" onClick={onDelete} data-testid="history-delete-yes">Ja</button>
+          <button className="rounded px-1 text-ink3 hover:bg-line" onClick={() => setConfirm(false)}>Nein</button>
+        </span>
+      ) : (
+        <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <button className="rounded px-1 py-0.5 text-[12px] text-ink3 hover:bg-line hover:text-ink2" title="Umbenennen"
+            onClick={() => { setName(c.title); setEditing(true) }} data-testid="history-rename">✎</button>
+          <button className="rounded px-1 py-0.5 text-[12px] text-ink3 hover:bg-line hover:text-red-400" title="Löschen"
+            onClick={() => setConfirm(true)} data-testid="history-delete">🗑</button>
+          <span className="ml-0.5 text-[11px] text-ink3">{relDate(c.updatedAt)}</span>
+        </span>
+      )}
+    </div>
+  )
+}
+
 function Bubble({ m, live = false, onShowThinking }: { m: Msg; live?: boolean; onShowThinking?: () => void }) {
   if (m.role === 'user') {
     return <div className="self-end"><div className="max-w-[560px] rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>

@@ -8,16 +8,18 @@ fortschritt: 40
 fortschritt_text: Meilensteine M1–M5 (2 von 5 fertig)
 ---
 ## Stand
-Der Grund fürs Feststecken ist gefunden und behoben: Der Agent wartete auf Freigaben, die die Oberfläche nicht beantworten konnte. Jetzt gibt es eine Freigabe-Karte und ein Auto-Erlauben, sodass auch große Aufträge durchlaufen.
+Chats lassen sich jetzt umbenennen und löschen. Der Ordner-Dialog öffnet wieder zuverlässig (jetzt im App-Fenster) und man kann mehrere Ordner auf einmal wählen und einzeln entfernen.
 ## Gerade
-- [ ] (du) Großen Auftrag im Alltag laufen lassen
-## Als Nächstes
 - [ ] (du) Update hochladen und OpenDante neu starten
+## Als Nächstes
+- [ ] (du) Ordnerwahl + Umbenennen/Löschen im Alltag testen
 - [ ] M3: Browser-Tests über Playwright einschalten
-- [ ] Chats im Verlauf löschen/umbenennen (falls gewünscht)
+- [ ] Datei anhängen / Referenzen (im „+"-Menü noch „bald")
 ## Lernen
 - [ ] Was „abliteriert“ bei einem Modell bedeutet
 ## Erledigt
+- [x] 2026-10-15: Chats umbenennen + löschen
+- [x] 2026-10-15: Ordner-Browser in der App, Mehrfachauswahl
 - [x] 2026-10-15: Feststecken behoben: Freigabe-Karte + Auto-Erlauben
 - [x] 2026-10-15: Fortschritt Schritt für Schritt + echter Countdown
 - [x] 2026-10-15: Zensurfreies Modell mit Werkzeugen bewiesen

@@ -88,7 +88,47 @@ async function saveSkill(name, content) {
   return slug
 }
 
-/** Open the native Windows folder dialog and return the chosen absolute path (the browser cannot read a folder path). */
+// ---- in-app folder browser ----
+// The browser can't read the file system, so the companion lists folders and the app shows its own picker (always
+// visible in the app window, supports picking several at once — unlike the native dialog, which opened behind the window).
+
+/** Windows drive roots (C:\, D:\, …) plus a few handy starting points. */
+async function fsRoots() {
+  const out = []
+  if (process.platform === 'win32') {
+    for (const l of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+      const p = `${l}:\\`
+      try { if ((await fs.stat(p)).isDirectory()) out.push({ name: `${l}:`, path: p }) } catch { /* no such drive */ }
+    }
+  } else {
+    out.push({ name: '/', path: '/' })
+  }
+  for (const [name, p] of [['Benutzer', os.homedir()], ['Desktop', path.join(os.homedir(), 'Desktop')], ['Dokumente', path.join(os.homedir(), 'Documents')], ['OpenDante-Projekte', PROJECTS]]) {
+    try { if ((await fs.stat(p)).isDirectory() && !out.some((x) => x.path === p)) out.push({ name, path: p }) } catch { /* missing */ }
+  }
+  return out
+}
+
+/** Sub-folders of `dir` (directories only), with the parent path for going up. */
+async function fsList(dir) {
+  if (!dir) return { path: '', parent: null, dirs: await fsRoots() }
+  const abs = path.resolve(String(dir))
+  let ents = []
+  try { ents = await fs.readdir(abs, { withFileTypes: true }) } catch (e) { throw new Error('Ordner nicht lesbar: ' + (e && e.code || e)) }
+  const dirs = []
+  for (const e of ents) {
+    if (!e.isDirectory() && !e.isSymbolicLink()) continue
+    if (e.name.startsWith('$') || e.name === 'System Volume Information') continue // Windows system noise
+    const p = path.join(abs, e.name)
+    if (e.isSymbolicLink()) { try { if (!(await fs.stat(p)).isDirectory()) continue } catch { continue } }
+    dirs.push({ name: e.name, path: p })
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
+  const parent = path.dirname(abs)
+  return { path: abs, parent: parent === abs ? '' : parent, dirs } // parent '' = go back to the roots
+}
+
+/** Open the native Windows folder dialog and return the chosen absolute path (kept as a fallback). */
 function pickFolder() {
   return new Promise((resolve) => {
     if (process.platform !== 'win32') return resolve({ path: '', note: 'Ordnerwahl gibt es nur unter Windows.' })
@@ -224,6 +264,24 @@ async function loadChat(id) {
   try { return JSON.parse(await fs.readFile(path.join(CHATS, `${id}.json`), 'utf8')) } catch { throw new Error('Chat nicht gefunden.') }
 }
 
+/** Rename a saved chat (updates both the full file and its metadata). */
+async function renameChat(id, title) {
+  if (!chatIdOk(id)) throw new Error('Ungültige Chat-Kennung.')
+  const t = String(title || '').trim().slice(0, 120)
+  if (!t) throw new Error('Bitte einen Namen angeben.')
+  const chat = await loadChat(id)
+  chat.title = t
+  return await saveChat(chat) // rewrites <id>.json + <id>.meta.json, returns the metadata
+}
+
+/** Delete a saved chat (both files). Succeeds even if a file is already gone. */
+async function deleteChat(id) {
+  if (!chatIdOk(id)) throw new Error('Ungültige Chat-Kennung.')
+  await fs.rm(path.join(CHATS, `${id}.json`), { force: true })
+  await fs.rm(path.join(CHATS, `${id}.meta.json`), { force: true })
+  return { ok: true, id }
+}
+
 // ---- Claude-API-Brücke (bezahlt) ----
 // Read the stored Anthropic key + model from OpenCode's config (written by the Einstellungen panel).
 async function readAnthropic() {
@@ -276,8 +334,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/skills') return sendJson(res, 200, await listSkills())
     if (req.method === 'GET' && url.pathname === '/repos') return sendJson(res, 200, await listRepos())
     if (req.method === 'GET' && url.pathname === '/chats') return sendJson(res, 200, await listChats())
+    if (req.method === 'POST' && url.pathname === '/chats/rename') { const b = await readBody(req); return sendJson(res, 200, await renameChat(b.id, b.title)) }
+    if (req.method === 'POST' && url.pathname === '/chats/delete') { const b = await readBody(req); return sendJson(res, 200, await deleteChat(b.id)) }
     if (req.method === 'GET' && url.pathname.startsWith('/chats/')) return sendJson(res, 200, await loadChat(url.pathname.slice(7)))
     if (req.method === 'POST' && url.pathname === '/chats') { const b = await readBody(req); return sendJson(res, 200, await saveChat(b)) }
+    if (req.method === 'GET' && url.pathname === '/fs') return sendJson(res, 200, await fsList(url.searchParams.get('path') || ''))
     if (req.method === 'POST' && url.pathname === '/repo/clone') { const b = await readBody(req); return sendJson(res, 200, await cloneRepo(b.url)) }
     if (req.method === 'POST' && url.pathname === '/git') { const b = await readBody(req); return sendJson(res, 200, await gitAction(b.path, b.action, b.message)) }
     if (req.method === 'POST' && url.pathname === '/settings') {
