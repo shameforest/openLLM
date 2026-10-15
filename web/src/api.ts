@@ -32,11 +32,12 @@ export async function health(): Promise<Health | null> {
 export const createSession = (title: string, dir?: string) =>
   call<{ id: string }>(`/session${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ title }) })
 
-/** Send a user prompt to the given local (Ollama) model. Returns at once (204); the answer arrives as events. */
-export const sendPrompt = (sessionID: string, text: string, modelID: string, dir?: string, agent = 'build') =>
+/** Send a user prompt to the given local (Ollama) model. Returns at once (204); the answer arrives as events.
+ *  `variant` picks a model variant from config/opencode.json, e.g. "ohne-denken" (sent to Ollama as reasoning_effort none). */
+export const sendPrompt = (sessionID: string, text: string, modelID: string, dir?: string, agent = 'build', variant?: string) =>
   call<void>(`/session/${sessionID}/prompt_async${dirQuery(dir)}`, {
     method: 'POST',
-    body: JSON.stringify({ agent, model: { providerID: 'ollama', modelID }, parts: [{ type: 'text', text }] }),
+    body: JSON.stringify({ agent, model: { providerID: 'ollama', modelID }, parts: [{ type: 'text', text }], ...(variant ? { variant } : {}) }),
   })
 
 export const abort = (sessionID: string, dir?: string) =>
@@ -68,8 +69,35 @@ export const replyQuestion = (id: string, answers: string[][], dir?: string) =>
   call<boolean>(`/question/${id}/reply${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ answers }) })
 export const rejectQuestion = (id: string, dir?: string) =>
   call<boolean>(`/question/${id}/reject${dirQuery(dir)}`, { method: 'POST' })
+// ---- undo, changes, plan list, context (verified against GET /doc, OpenCode 1.19.0) ----
+
+/** One changed file of a turn: unified-diff `patch`, line counts, added/deleted/modified. */
+export interface FileDiff { file?: string; patch?: string; additions: number; deletions: number; status?: 'added' | 'deleted' | 'modified' }
+/** A step of the agent's own task list (its `todowrite` tool). */
+export interface Todo { content: string; status: string; priority: string }
+
+/** Files changed by the turn that started with `messageID` (the user message). */
+export const sessionDiff = (sessionID: string, messageID: string, dir?: string) =>
+  call<FileDiff[]>(`/session/${sessionID}/diff${dirQuery(dir)}${dir && dir.trim() ? '&' : '?'}messageID=${encodeURIComponent(messageID)}`)
+/** Undo from this message on: files go back to their state before it; OpenCode drops the reverted messages with the
+ *  next prompt. `unrevert` takes it back as long as no new prompt was sent. */
+export const revertTo = (sessionID: string, messageID: string, dir?: string) =>
+  call<unknown>(`/session/${sessionID}/revert${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ messageID }) })
+export const unrevert = (sessionID: string, dir?: string) =>
+  call<unknown>(`/session/${sessionID}/unrevert${dirQuery(dir)}`, { method: 'POST' })
+export const sessionTodos = (sessionID: string, dir?: string) => call<Todo[]>(`/session/${sessionID}/todo${dirQuery(dir)}`)
+/** Condense the conversation so far into a summary, to free the model's context window. */
+export const summarize = (sessionID: string, modelID: string, dir?: string) =>
+  call<boolean>(`/session/${sessionID}/summarize${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ providerID: 'ollama', modelID }) })
+
+/** The folder as OpenCode sees it. Without `vcs: "git"` OpenCode keeps no file snapshots there: no list of changed
+ *  files, no undo (measured 2026-10-15: same edit, empty diff before `git init`, the diff right after). */
+export const projectInfo = (dir?: string) => call<{ id: string; worktree: string; vcs?: string }>(`/project/current${dirQuery(dir)}`)
+/** Make the folder a git repository (a hidden .git folder), so OpenCode can snapshot it. Nothing is committed. */
+export const gitInit = (dir?: string) => call<{ vcs?: string }>(`/project/git/init${dirQuery(dir)}`, { method: 'POST' })
+
 /** The server's own folders; `directory` is where the agent works when no folder is chosen. */
-export const serverPaths = (dir?: string) => call<{ home: string; directory: string }>(`/path${dirQuery(dir)}`)
+export const serverPaths = (dir?: string) => call<{ home: string; state: string; config: string; directory: string }>(`/path${dirQuery(dir)}`)
 /** busy / idle / retry (after a model error, with attempt and reason) for every session in the folder. */
 export const sessionStatus = (dir?: string) => call<Record<string, SessionStatus>>(`/session/status${dirQuery(dir)}`)
 /** All messages of a session with their parts — used to re-sync when live events were missed. */

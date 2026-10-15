@@ -16,8 +16,9 @@ export async function companionPost<T = unknown>(path: string, body?: unknown): 
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return (await res.json().catch(() => ({}))) as T
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((j && typeof j.error === 'string' && j.error) || `${res.status}`) // e.g. "Tageslimit … erreicht"
+  return j as T
 }
 
 export const OFFLINE_HINT = 'Der lokale Dienst läuft noch nicht — er startet mit OpenDante. Bis dahin greift dieser Knopf nicht.'

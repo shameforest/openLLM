@@ -1,0 +1,8 @@
+{
+  "id": "code-lesen",
+  "title": "Aufrufer finden",
+  "prompt": "Im aktuellen Ordner liegt eine kleine Python-Anwendung aus vier Dateien (main.py, lager.py, berichte.py, speicher.py). Genau eine Funktion ruft die Funktion `speichere()` direkt auf (nicht gemeint sind `speichere_log`, `speicher_info` oder ähnlich benannte Funktionen). Finde diese Funktion und schreibe NUR ihren Namen in die Datei antwort.txt im aktuellen Ordner: eine Zeile, nur der Funktionsname, ohne Klammern, ohne Modulnamen, ohne weiteren Text. Verändere keine der Python-Dateien. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 6,
+  "kind": "read"
+}

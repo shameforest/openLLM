@@ -33,12 +33,30 @@ const RISKY = new RegExp([
   String.raw`\b(python3?|py)\s+-c\b|\bnode\s+(-e|-p|--eval|--print)\b|\b(powershell|pwsh)(\.exe)?\s+(-c\b|-Command\b|-EncodedCommand\b|-enc\b)|\bcmd(\.exe)?\s+/c\b`,
 ].join('|'), 'i')
 
-/** Absolute paths in a command (C:\…, \\server\…, ~\…) that are NOT inside the working folder. */
-export function pathsOutside(text: string, workdir: string): string[] {
-  const norm = (p: string) => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-  const wd = workdir ? norm(workdir) : ''
-  const found = text.match(/(?:[a-zA-Z]:[\\/]|\\\\|~[\\/])[^\s"'`;|&<>]*/g) ?? []
-  return found.filter((p) => !wd || !(norm(p) === wd || norm(p).startsWith(wd + '\\')))
+const norm = (p: string) => p.replace(/\//g, '\\').replace(/\\+$/, '').replace(/\\\*$/, '').toLowerCase()
+const inside = (p: string, dirs: string[]) => dirs.some((d) => d && (norm(p) === norm(d) || norm(p).startsWith(norm(d) + '\\')))
+
+// An absolute path: quoted (may contain spaces, e.g. "C:\Program Files\…") or unquoted up to the next space or operator.
+const START = String.raw`(?:[a-zA-Z]:[\\/]|\\\\|~[\\/])`
+const PATH = new RegExp(`"(${START}[^"]*)"|'(${START}[^']*)'|(${START}[^\\s"'\`;|&<>]*)`, 'g')
+// Starting an installed program (python.exe from Program Files, git, node …) is not access to files outside the
+// project; found in the real test (& "C:\Program Files\Python312\python.exe" zahlen.py). Its arguments are still checked.
+const PROGRAM = /\.(exe|cmd|bat|com)$/i
+const PROGRAM_DIRS = /^(c:\\program files( \(x86\))?|c:\\windows|c:\\python\d*)\\|\\appdata\\local\\programs\\/
+
+/** Absolute paths in a command (C:\…, \\server\…, ~\…) that are NOT inside the working folder or another safe folder
+ *  (OpenCode's own data folder, where plan mode stores its plans). Installed programs are ignored. */
+export function pathsOutside(text: string, workdir: string, safe: string[] = []): string[] {
+  const found = [...text.matchAll(PATH)].map((m) => m[1] ?? m[2] ?? m[3])
+  return found.filter((p) => !inside(p, [workdir, ...safe]) && !(PROGRAM.test(p) && PROGRAM_DIRS.test(norm(p))))
+}
+
+/** OpenCode's own data and state folders (from GET /path), e.g. …\.local\share\opencode\plans for plan mode. Its config
+ *  folder is deliberately NOT included: there the agent could change its own permissions. */
+export function openCodeSafeDirs(paths: { state?: string; home?: string } | null): string[] {
+  if (!paths?.state) return []
+  const data = paths.state.replace(/([\\/])state([\\/])opencode$/i, '$1share$2opencode')
+  return data !== paths.state ? [paths.state, data] : [paths.state]
 }
 
 /** Message sent with an automatic "no" to a loop, so the model changes course instead of trying the same again. */
@@ -48,20 +66,24 @@ export const LOOP_HINT =
 
 /** What the automatic mode does with a request: allow it once, turn a loop around, or leave it to the user (null).
  *  Work inside the working folder runs on its own; anything outside it, and anything on the risky list, asks. */
-export function autoDecision(p: PermissionRequest, workdir = ''): { reply: 'once' } | { reply: 'reject'; message: string } | null {
+export function autoDecision(p: PermissionRequest, workdir = '', safe: string[] = []): { reply: 'once' } | { reply: 'reject'; message: string } | null {
   if (p.permission === 'doom_loop') return { reply: 'reject', message: LOOP_HINT }
-  if (p.permission === 'external_directory') return null // outside the project folder: the user decides
   const text = `${str(p.metadata?.command)} ${(p.patterns ?? []).join(' ')}`
+  if (p.permission === 'external_directory') {
+    // Outside the project folder the user decides — except OpenCode's own data folder (plan mode stores plans there).
+    const targets = [...(p.patterns ?? []), str(p.metadata?.filepath), str(p.metadata?.directory)].filter(Boolean)
+    return targets.length > 0 && targets.every((t) => inside(t, safe)) ? { reply: 'once' } : null
+  }
   if (RISKY.test(text)) return null
-  if (p.permission === 'bash' && pathsOutside(text, workdir).length > 0) return null
+  if (p.permission === 'bash' && pathsOutside(text, workdir, safe).length > 0) return null
   return { reply: 'once' }
 }
 
 /** Why a request was left to the user — shown on the card so it is clear it was not forgotten. */
-export function whyAsked(p: PermissionRequest, workdir = ''): string {
+export function whyAsked(p: PermissionRequest, workdir = '', safe: string[] = []): string {
   if (p.permission === 'external_directory') return 'Zugriff außerhalb des Arbeitsordners entscheidest du.'
   const text = `${str(p.metadata?.command)} ${(p.patterns ?? []).join(' ')}`
   if (RISKY.test(text)) return 'Hochladen, Löschen, Herunterladen-und-Ausführen und Programm-Einzeiler fragen immer nach.'
-  if (p.permission === 'bash' && pathsOutside(text, workdir).length > 0) return 'Der Befehl greift auf einen Ort außerhalb des Arbeitsordners zu.'
+  if (p.permission === 'bash' && pathsOutside(text, workdir, safe).length > 0) return 'Der Befehl greift auf einen Ort außerhalb des Arbeitsordners zu.'
   return ''
 }

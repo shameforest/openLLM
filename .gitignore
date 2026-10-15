@@ -14,3 +14,7 @@ Thumbs.db
 data/
 *.part
 dist/
+
+# Testlauf results (scripts/eval.mjs): stay on this PC
+eval/results/
+*.tsbuildinfo

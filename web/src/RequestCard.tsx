@@ -5,11 +5,12 @@ import { describePermission, whyAsked } from './requests'
 // Shown above the chat box when the agent is waiting on the user: a permission prompt (a command, a file, a loop) or a
 // multiple-choice question. Answering it here lets the agent continue instead of hanging. One request at a time (the
 // oldest), so the user is never buried.
-export function RequestCard({ perms, questions, autoAllow, workdir, onPermission, onQuestion, onReject }: {
+export function RequestCard({ perms, questions, autoAllow, workdir, safeDirs = [], onPermission, onQuestion, onReject }: {
   perms: PermissionRequest[]
   questions: QuestionRequest[]
   autoAllow: boolean
   workdir: string
+  safeDirs?: string[]
   onPermission: (id: string, reply: 'once' | 'always' | 'reject', message?: string) => void
   onQuestion: (id: string, answers: string[][]) => void
   onReject: (id: string) => void
@@ -18,7 +19,7 @@ export function RequestCard({ perms, questions, autoAllow, workdir, onPermission
   if (q) return <QuestionBox key={q.id} q={q} onAnswer={onQuestion} onReject={onReject} />
   const p = perms[0]
   if (!p) return null
-  return <PermissionBox key={p.id} p={p} autoAllow={autoAllow} why={whyAsked(p, workdir)} onReply={onPermission} more={perms.length - 1} />
+  return <PermissionBox key={p.id} p={p} autoAllow={autoAllow} why={whyAsked(p, workdir, safeDirs)} onReply={onPermission} more={perms.length - 1} />
 }
 
 function PermissionBox({ p, autoAllow, why, onReply, more }: { p: PermissionRequest; autoAllow: boolean; why: string; onReply: (id: string, reply: 'once' | 'always' | 'reject', message?: string) => void; more: number }) {

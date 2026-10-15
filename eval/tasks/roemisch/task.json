@@ -1,0 +1,8 @@
+{
+  "id": "roemisch",
+  "title": "Römische Zahlen",
+  "prompt": "Erstelle im aktuellen Ordner die Datei roemisch.py mit genau diesen zwei Funktionen:\n- `zu_roemisch(n: int) -> str`: wandelt eine ganze Zahl von 1 bis 3999 in eine römische Zahl aus Großbuchstaben um (übliche Schreibweise mit Subtraktionsregel, zum Beispiel 4 -> IV, 9 -> IX, 1994 -> MCMXCIV). Für Werte außerhalb von 1 bis 3999 (zum Beispiel 0, 4000 oder negative Zahlen) muss ein ValueError ausgelöst werden.\n- `von_roemisch(s: str) -> int`: wandelt eine in dieser Schreibweise gebildete römische Zahl (Großbuchstaben) zurück in die ganze Zahl.\nFür jede Zahl n von 1 bis 3999 muss von_roemisch(zu_roemisch(n)) == n gelten. Verwende nur die Python-Standardbibliothek. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 8,
+  "kind": "new"
+}

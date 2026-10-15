@@ -14,10 +14,14 @@ export interface Turn {
   kinds: Record<string, string> // part id → part type ("text" | "reasoning" | …), from message.part.updated
   segs: { id: string; text: string }[] // streamed text per part, in arrival order
   error: string | null
+  retry: { attempt: number; message: string; next: number } | null // the server is retrying after a model error
+  userMsg: string | null // OpenCode id of this turn's first user message (to undo the turn with POST …/revert)
+  userMsgs: string[]     // all user messages of the turn (plan mode adds one when it switches to build)
+  agent: string | null   // the agent of the latest answer: "plan", or "build" once plan mode switched over
 }
 
 export const emptyTurn = (): Turn =>
-  ({ text: '', reasoning: '', tools: [], done: false, usage: null, perMsg: {}, kinds: {}, segs: [], error: null })
+  ({ text: '', reasoning: '', tools: [], done: false, usage: null, perMsg: {}, kinds: {}, segs: [], error: null, retry: null, userMsg: null, userMsgs: [], agent: null })
 
 /** Rebuild answer + reasoning from the per-part segments. Separate parts (e.g. text before and after a tool call)
  *  are joined with a blank line. */
@@ -87,21 +91,34 @@ export function reduceEvent(turn: Turn, e: OcEvent): Turn {
       // A turn with tool calls spans several assistant messages, and each is updated repeatedly. Keep the latest
       // count per message and sum them, so the total is exact either way.
       const info = p.info
+      if (info?.role === 'user') {
+        // Plan mode's "switch to build?" adds a second user message inside the same turn. Undo starts at the first;
+        // the file changes are listed per user message, so all of them are kept.
+        if (typeof info.id !== 'string' || turn.userMsgs.includes(info.id)) return turn
+        return { ...turn, userMsg: turn.userMsg ?? info.id, userMsgs: [...turn.userMsgs, info.id] }
+      }
+      const agent = typeof info?.agent === 'string' && info.agent !== turn.agent ? info.agent : turn.agent
       const tok = info?.tokens
-      if (!tok || info?.role === 'user') return turn
+      if (!tok) return agent !== turn.agent ? { ...turn, agent } : turn
       // input = everything the model read, including prompt-cache hits (OpenCode reports those separately).
       const input = num(tok.input) + num(tok.cache?.read) + num(tok.cache?.write)
       const perMsg = { ...turn.perMsg, [String(info.id ?? 'msg')]: { input, output: num(tok.output) + num(tok.reasoning) } }
       const all = Object.values(perMsg)
       const usage = { input: all.reduce((s, x) => s + x.input, 0), output: all.reduce((s, x) => s + x.output, 0) }
-      return { ...turn, perMsg, usage }
+      return { ...turn, perMsg, usage, agent }
     }
     case 'session.error':
       return { ...turn, done: true, error: errorText(p) }
     case 'session.idle':
       return { ...turn, done: true }
-    case 'session.status':
-      return p.status?.type === 'idle' ? { ...turn, done: true } : turn
+    case 'session.status': {
+      // After a model error OpenCode retries by itself with growing pauses (measured: 4 tries in 17 s). Keep that
+      // visible instead of showing "reading the task" while nothing is being read.
+      const st = p.status ?? {}
+      if (st.type === 'idle') return { ...turn, done: true, retry: null }
+      if (st.type === 'retry') return { ...turn, retry: { attempt: num(st.attempt), message: typeof st.message === 'string' ? st.message : '', next: num(st.next) } }
+      return turn.retry ? { ...turn, retry: null } : turn
+    }
     default:
       return turn
   }

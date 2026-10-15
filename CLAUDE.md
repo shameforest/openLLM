@@ -19,16 +19,20 @@ Product/display name is "OpenDante"; the Git repo and filesystem paths keep the 
 ## Decisions so far (M0)
 - **Harness: extend OpenCode** — github.com/anomalyco/opencode, MIT [checked 2026-10-14: repo page; the old `sst/opencode` redirects here]. No fork: markdown agents + one plugin + MCP servers.
 - **Model server: Ollama** (MIT), same ggml kernels as llama.cpp, auto model-swap. Fall back to `llama-server` for tool-call issues or >2 parallel agents.
-- **First model: Qwen3.8-27B, Apache-2.0** — name and scores are UNVERIFIED (from web-search summaries only; Hugging Face/Ollama were unreachable in the cloud). Confirm the exact Ollama tag and the LICENSE file on download day. Start with ONE model, add the others + a blind test later.
-- **Default model since 2026-10-15: the uncensored (abliterated) `orcarouter/Qwen3.8-27B-Uncensored:q4_K_M`** (user's wish; Apache-2.0 + tools + thinking on its ollama.com page). The original `qwen3.8:27b` and `huihui_ai/Qwen3.8-abliterated:27b-q4_K_M` stay selectable in Einstellungen. Keep `LOCAL_MODELS` (web/src/settings.ts), `config/opencode.json` and `install.ps1` in sync.
+- **Model: Qwen3.8-27B family, Apache-2.0**, installed and running on the Shadow PC. Measured 2026-10-15: prompt reading ~496 tokens/s, writing ~21.8 tokens/s, loading 10–45 s.
+- **Default model since 2026-10-15: the uncensored (abliterated) `orcarouter/Qwen3.8-27B-Uncensored:q4_K_M`** (user's wish; Apache-2.0 + tools + thinking on its ollama.com page). `qwen3.8:27b` and `huihui_ai/Qwen3.8-abliterated:27b-q4_K_M` stay selectable. **The list lives in one place: `config/models.json`** (UI, companion and installer read it); `config/opencode.json` must contain the same model ids.
+- **OpenCode pinned to 1.x** (`"autoupdate": false`; OpenCode 2 changes config and server API). Every config change is validated with `opencode models ollama` (installer and launcher do it and roll back). A comment key inside `permission` makes the whole config invalid; `external_directory` and a plain `edit: deny` for the plan agent break plan mode (see `_note` in the config).
+- **Undo and the "Dateien geändert" line need git in the working folder**: OpenCode keeps snapshots only for git folders (measured 2026-10-15). The UI offers "Sicherung einschalten" (`POST /project/git/init`).
+- **Thinking:** variant `ohne-denken` (`reasoningEffort: none` → Ollama `reasoning_effort: none`) switches Qwen3.8's thinking off; `low` and `think:false` have no effect (measured). Off by default, switchable in Einstellungen.
 - **OpenCode stream quirk (measured):** thinking arrives in a part of type `reasoning` whose deltas say `field:"text"` — route by part id (web/src/stream.ts), never by field.
 - **Run location: Shadow PC only** (local, free). No rented server (user's choice).
 
 ## Honest expectation
 On 24 GB this reaches a capable assistant for scoped, well-specified tasks, but stays **below Claude Code on long autonomous multi-file runs**. Confidence 75. Flips with a bigger/rented GPU or a notably stronger small model.
 
-## Process (mirror OpenDali)
-- Development happens in these cloud sessions (the user only has credit here). The Shadow PC gets updates by running one installer command (`scripts/install.ps1`, to be built). Real runs, speed and the model blind test happen on the Shadow PC; the user sends screenshots/logs.
-- Milestone by milestone (M1–M5 in `PLAN.md`), one feature at a time: build → test → fix → show proof → start the next.
-- Update `PROGRESS.md` at the end of every session — it is the project's memory.
-- Here in the cloud there is **no GPU and no Windows**: we can check config/JSON/script structure and logic, not real model runs. Say so; never claim a local run worked without the user's proof.
+## Process
+- Sessions run either in the cloud (no GPU, no Windows: only config/script/logic checks, never claim a model run worked) or **locally on the Shadow PC** (real runs possible). Check which one you are in before promising anything.
+- The Shadow PC gets updates via `scripts/install.ps1` (`-SkipModel` skips the model download); the desktop icon runs `scripts/start.ps1`.
+- **Testing locally:** never touch the user's running OpenDante (OpenCode 4096, companion 4097). Start a separate OpenCode (`opencode serve --port 4196`, own `XDG_CONFIG_HOME` copy of the config) and companion (4197). Before anything loads a model: `nvidia-smi`, `ollama ps` and the ComfyUI queue (OpenDali) must be idle.
+- **Measure changes with the Testlauf** (`node scripts/eval.mjs`, tasks in `eval/tasks/`, results in `eval/results/`): model, rules, prompts or thinking settings count as better only if the success rate holds.
+- Feature by feature: build → test (`npm test` in `web/`, `node companion/test.mjs`) → browser check → commit. Update `PROGRESS.md` at the end of every session — it is the project's memory.

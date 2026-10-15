@@ -1,0 +1,8 @@
+{
+  "id": "fix-offbyone",
+  "title": "Median-Fehler beheben",
+  "prompt": "Im aktuellen Ordner liegen statistik.py (mit den Funktionen `mittelwert(zahlen)` und `median(zahlen)`) und test_statistik.py. Wenn du `python test_statistik.py` ausführst, schlägt der Test fehl. Finde den Fehler in statistik.py und behebe ihn, sodass `python test_statistik.py` ohne Fehler durchläuft und beide Funktionen für jede nicht leere Liste (ungerade und gerade Länge, unsortiert, auch mit Kommazahlen) das mathematisch richtige Ergebnis liefern. Ändere die Datei test_statistik.py nicht. Funktionsnamen und Signaturen in statistik.py bleiben unverändert. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 8,
+  "kind": "fix"
+}

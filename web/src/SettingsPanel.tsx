@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { CLAUDE_MODELS, LOCAL_MODELS, useSettings } from './settings'
-import { OFFLINE_HINT, companionPost } from './companion'
+import { COMPANION, OFFLINE_HINT, companionPost } from './companion'
 import { useSkills } from './skills'
 import { cloneRepo, gitAction, useProjects } from './projects'
 import { useChats } from './chats'
@@ -27,9 +27,14 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   const [commitMsg, setCommitMsg] = useState('')
   const [gitOut, setGitOut] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const [spentToday, setSpentToday] = useState<number | null>(null)
 
-  // Refresh the installed skills, cloned projects and the chat totals whenever the panel opens.
-  useEffect(() => { if (open) { void skills.refresh(); void projects.refresh(); void chats.refresh() } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Refresh the installed skills, cloned projects, chat totals and today's Claude spend whenever the panel opens.
+  useEffect(() => {
+    if (!open) return
+    void skills.refresh(); void projects.refresh(); void chats.refresh()
+    fetch(COMPANION + '/claude/usage').then((r) => r.json()).then((u) => setSpentToday(typeof u.usd === 'number' ? u.usd : null)).catch(() => setSpentToday(null))
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null
 
@@ -106,6 +111,30 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
             {LOCAL_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}
           </select>
           <div className="mono mt-1.5 break-all text-[12px] text-ink3">{s.localModel}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
+            <span className="text-ink3">Nach der letzten Antwort geladen halten:</span>
+            <select className="rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none" value={s.keepWarmMin}
+              onChange={(e) => s.set({ keepWarmMin: Number(e.target.value) })} data-testid="keep-warm">
+              <option value={0}>5 Minuten (Ollama-Standard)</option>
+              <option value={30}>30 Minuten</option>
+              <option value={60}>1 Stunde</option>
+              <option value={120}>2 Stunden</option>
+            </select>
+          </div>
+          <p className="mt-1 text-[12px] text-ink3">
+            Spart nach einer Pause ~45 s Ladezeit vor der ersten Antwort. Das Modell belegt solange ~18 GB Grafikspeicher; OpenDali entlädt es beim Start automatisch.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
+            <span className="text-ink3">Nachdenken vor jedem Schritt:</span>
+            <select className="rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none" value={s.thinkOff ? 'aus' : 'an'}
+              onChange={(e) => s.set({ thinkOff: e.target.value === 'aus' })} data-testid="think-off">
+              <option value="an">Gründlich (Standard)</option>
+              <option value="aus">Aus — schneller, für einfache Aufgaben</option>
+            </select>
+          </div>
+          <p className="mt-1 text-[12px] text-ink3">
+            Das Modell überlegt sonst vor jedem Schritt in Ruhe (sichtbar im Gedankengang). „Aus“ spart diese Zeit, macht aber mehr Fehler; gemessen bei einer Rechenfrage: 1 s statt 10 s, dafür falsch.
+          </p>
         </Section>
 
         {/* Claude API */}
@@ -117,6 +146,13 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
             <select className="rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" value={s.claudeModel} onChange={(e) => s.set({ claudeModel: e.target.value })} data-testid="claude-model">
               {CLAUDE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}
             </select>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
+            <span className="text-ink3">Tageslimit:</span>
+            <input type="number" min={0} step={0.5} className="w-24 rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none"
+              value={s.claudeDailyUsd} onChange={(e) => s.set({ claudeDailyUsd: Math.max(0, Number(e.target.value) || 0) })} data-testid="claude-cap" />
+            <span className="text-ink3">US-Dollar pro Tag (0 = kein Limit)</span>
+            {spentToday != null && <span className="text-ink2" data-testid="claude-spent">· heute verbraucht: {spentToday.toFixed(2)} $</span>}
           </div>
           <button className="btn-accent mt-3" onClick={() => run('Claude-Zugang gespeichert', () => companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel }))} data-testid="save-claude">Speichern</button>
         </Section>

@@ -1,0 +1,8 @@
+{
+  "id": "js-export",
+  "title": "JavaScript-Summe reparieren",
+  "prompt": "Im aktuellen Ordner liegen summe.mjs und test.mjs. `node test.mjs` schlägt fehl. Behebe die Fehler in summe.mjs, ohne test.mjs zu ändern, sodass `node test.mjs` erfolgreich durchläuft. Die Datei exportiert weiterhin die benannte Funktion `summe(werte)` (`export function summe`), die ein Array summiert. Anforderungen: Ein leeres Array ergibt 0. Werte vom Typ number (außer NaN) werden addiert. Strings, die nach trim() eine gültige Dezimalzahl darstellen (zum Beispiel '3', ' 4.5 ', '-2'), werden als Zahl addiert. Alle anderen Werte (nicht numerische Strings wie 'abc', leere Strings, null, undefined, NaN, Booleans, Objekte, Arrays) werden ignoriert. Ändere nur summe.mjs. Arbeite selbständig ohne Rückfragen.",
+  "check": ["node", "check.mjs"],
+  "timeoutMin": 8,
+  "kind": "js"
+}

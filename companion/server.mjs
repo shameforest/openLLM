@@ -67,7 +67,7 @@ async function setAnthropic(apiKey, model) {
   try { cfg = JSON.parse(await fs.readFile(file, 'utf8')) } catch { /* fresh */ }
   cfg.provider = cfg.provider || {}
   if (apiKey && apiKey.trim()) {
-    cfg.provider.anthropic = { name: 'Claude (Anthropic)', options: { apiKey: apiKey.trim() }, models: { [model || 'claude-opus-5-5']: {} } }
+    cfg.provider.anthropic = { name: 'Claude (Anthropic)', options: { apiKey: apiKey.trim() }, models: { [model || 'claude-sonnet-5-5']: {} } }
   } else {
     delete cfg.provider.anthropic
   }
@@ -293,11 +293,44 @@ async function readAnthropic() {
   } catch { return {} }
 }
 
-/** One call to the Claude Messages API with the stored key. Used by the auto offload/audit modes. */
-async function callClaude({ system, prompt, model }) {
+// Price per million tokens [input, output] in USD — Anthropic first-party rates (claude-api reference, cached
+// 2026-10-06). Unknown models are charged at the Opus rate, so the cap errs on the safe side.
+const CLAUDE_PRICES = { 'claude-opus-5-5': [4, 20], 'claude-sonnet-5-5': [2, 10], 'claude-haiku-5-5': [0.1, 0.5] }
+const DEFAULT_CLAUDE = 'claude-sonnet-5-5'
+const USAGE_FILE = path.join(path.dirname(CHATS), 'claude-usage.json')
+const costUsd = (model, inTok, outTok) => {
+  const [pi, po] = CLAUDE_PRICES[model] || CLAUDE_PRICES['claude-opus-5-5']
+  return (inTok * pi + outTok * po) / 1e6
+}
+const today = () => new Date().toISOString().slice(0, 10)
+
+/** What the paid Claude modes spent today (resets at midnight UTC). */
+async function claudeUsage() {
+  try {
+    const u = JSON.parse(await fs.readFile(USAGE_FILE, 'utf8'))
+    if (u.date === today()) return { date: u.date, usd: Number(u.usd) || 0, calls: Number(u.calls) || 0 }
+  } catch { /* first call today */ }
+  return { date: today(), usd: 0, calls: 0 }
+}
+async function addClaudeUsage(usd) {
+  const u = await claudeUsage()
+  const next = { date: u.date, usd: u.usd + usd, calls: u.calls + 1 }
+  await fs.mkdir(path.dirname(USAGE_FILE), { recursive: true })
+  await fs.writeFile(USAGE_FILE, JSON.stringify(next))
+  return next
+}
+
+/** One call to the Claude Messages API with the stored key. Used by the auto offload/audit modes. A daily cap in USD
+ *  (`capUsd`, from Einstellungen; 0 = none) is enforced here, server-side, before each call. */
+async function callClaude({ system, prompt, model, capUsd }) {
   const stored = await readAnthropic()
   if (!stored.key) throw new Error('Kein Claude-Schlüssel gespeichert (Einstellungen → Claude-Verbindung → Speichern).')
-  const useModel = model || stored.model || 'claude-opus-5-5'
+  const cap = Number(capUsd) || 0
+  if (cap > 0) {
+    const u = await claudeUsage()
+    if (u.usd >= cap) throw new Error(`Tageslimit für Claude erreicht (${u.usd.toFixed(2)} $ von ${cap.toFixed(2)} $). Ab Mitternacht (UTC) wieder frei, oder das Limit in den Einstellungen erhöhen.`)
+  }
+  const useModel = model || stored.model || DEFAULT_CLAUDE
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': stored.key, 'anthropic-version': '2023-06-01' },
@@ -307,7 +340,9 @@ async function callClaude({ system, prompt, model }) {
   if (!r.ok) throw new Error((j && j.error && j.error.message) || `Claude-API Fehler ${r.status}`)
   const text = Array.isArray(j.content) ? j.content.filter((c) => c.type === 'text').map((c) => c.text).join('') : ''
   const usage = { input_tokens: Number(j.usage && j.usage.input_tokens) || 0, output_tokens: Number(j.usage && j.usage.output_tokens) || 0 }
-  return { text, model: useModel, usage }
+  const cost = costUsd(useModel, usage.input_tokens, usage.output_tokens)
+  const day = await addClaudeUsage(cost)
+  return { text, model: useModel, usage, costUsd: cost, todayUsd: day.usd }
 }
 
 // ---- static web UI ----
@@ -359,6 +394,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, slug })
     }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
+    if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
     if (req.method === 'POST' && url.pathname === '/update/models') { const b = await readBody(req); return sendJson(res, 200, runUpdate('models', b.model)) }
     if (req.method === 'GET') return serveStatic(req, res)

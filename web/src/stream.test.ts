@@ -68,6 +68,35 @@ describe('reduceEvent', () => {
     expect(t.text).toBe('Ich lege die Datei an.\n\nFertig.')
   })
 
+  it('shows the server retrying after a model error, and clears it when it works again (OD-14)', () => {
+    const t = run([ev('session.status', { status: { type: 'retry', attempt: 4, message: 'model not found', next: 1792061357521 } })])
+    expect(t.retry).toEqual({ attempt: 4, message: 'model not found', next: 1792061357521 })
+    expect(t.done).toBe(false)
+    expect(reduceEvent(t, ev('session.status', { status: { type: 'busy' } })).retry).toBeNull()
+  })
+
+  it('remembers the user message id of the turn (needed to undo it)', () => {
+    const t = run([
+      ev('message.updated', { info: { id: 'msg_user1', role: 'user' } }),
+      ev('message.updated', { info: { id: 'msg_a1', role: 'assistant', tokens: { input: 5, output: 1 } } }),
+    ])
+    expect(t.userMsg).toBe('msg_user1')
+    expect(t.usage).toEqual({ input: 5, output: 1 }) // the user message adds no tokens
+  })
+
+  it('keeps the first user message for undo and notices plan mode switching to build (found in the real test)', () => {
+    const t = run([
+      ev('message.updated', { info: { id: 'msg_u1', role: 'user' } }),
+      ev('message.updated', { info: { id: 'msg_a1', role: 'assistant', agent: 'plan', tokens: { input: 5, output: 1 } } }),
+      ev('message.updated', { info: { id: 'msg_u1', role: 'user' } }), // updated again: no duplicate
+      ev('message.updated', { info: { id: 'msg_u2', role: 'user' } }), // "switch to build agent"
+      ev('message.updated', { info: { id: 'msg_a2', role: 'assistant', agent: 'build' } }),
+    ])
+    expect(t.userMsg).toBe('msg_u1')
+    expect(t.userMsgs).toEqual(['msg_u1', 'msg_u2'])
+    expect(t.agent).toBe('build')
+  })
+
   it('marks done on session.idle and on session.status idle', () => {
     expect(run([ev('session.idle')]).done).toBe(true)
     expect(run([ev('session.status', { status: { type: 'busy' } })]).done).toBe(false)

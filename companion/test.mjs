@@ -41,6 +41,16 @@ try {
   const oc = JSON.parse(await fs.readFile(path.join(cfg, 'opencode.json'), 'utf8'))
   ok(oc.provider.anthropic.options.apiKey === 'sk-ant-x' && oc.provider.anthropic.models['claude-opus-5-5'], 'anthropic provider + key written')
 
+  // Daily cap for the paid Claude modes (OD-12): enforced before any network call
+  const day = new Date().toISOString().slice(0, 10)
+  await fs.writeFile(path.join(data, 'claude-usage.json'), JSON.stringify({ date: day, usd: 2.5, calls: 7 }))
+  const capped = await post('/claude', { prompt: 'hallo', model: 'claude-sonnet-5-5', capUsd: 2 })
+  ok(capped.error && /Tageslimit/.test(capped.error), 'a Claude call above the daily cap is refused (no API call made)')
+  const usageNow = await fetch(base + '/claude/usage').then((r) => r.json())
+  ok(usageNow.date === day && usageNow.usd === 2.5 && usageNow.calls === 7, 'GET /claude/usage reports what was spent today')
+  await fs.writeFile(path.join(data, 'claude-usage.json'), JSON.stringify({ date: '2000-01-01', usd: 99, calls: 1 }))
+  ok((await fetch(base + '/claude/usage').then((r) => r.json())).usd === 0, 'the spend resets on a new day')
+
   const s = await post('/skills', { name: 'Test Runner!', content: '---\nname: test-runner\ndescription: runs tests\n---\nbody' })
   ok(s.slug === 'test-runner', 'skill name slugified')
   ok((await fs.readFile(path.join(cfg, 'skills', 'test-runner', 'SKILL.md'), 'utf8')).includes('body'), 'skill saved as SKILL.md')

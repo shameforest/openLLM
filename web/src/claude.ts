@@ -23,13 +23,14 @@ const OFFLOAD_SYSTEM =
   '(Code mit kurzen deutschen Kommentaren, falls es Code ist), ohne Rückfragen. Wenn die Aufgabe ohne zusätzlichen ' +
   'Zusammenhang nicht eindeutig lösbar ist, sage das in einem Satz, statt zu raten.'
 
-export interface ClaudeReply { text: string; model: string; usage?: { input_tokens: number; output_tokens: number } }
+export interface ClaudeReply { text: string; model: string; usage?: { input_tokens: number; output_tokens: number }; costUsd?: number; todayUsd?: number }
 
-export const claudeAudit = (content: string, model: string) =>
-  companionPost<ClaudeReply>('/claude', { system: AUDIT_SYSTEM, prompt: content, model })
+// capUsd: daily spending cap in USD (Einstellungen; 0 = none). The companion refuses the call once today's spend reached it.
+export const claudeAudit = (content: string, model: string, capUsd = 0) =>
+  companionPost<ClaudeReply>('/claude', { system: AUDIT_SYSTEM, prompt: content, model, capUsd })
 
-export const claudeOffload = (task: string, model: string) =>
-  companionPost<ClaudeReply>('/claude', { system: OFFLOAD_SYSTEM, prompt: task, model })
+export const claudeOffload = (task: string, model: string, capUsd = 0) =>
+  companionPost<ClaudeReply>('/claude', { system: OFFLOAD_SYSTEM, prompt: task, model, capUsd })
 
 /** Share of the work done locally vs by Claude, from output-token counts (the best available proxy). */
 export function taskSplit(localOutTokens: number, claudeOutTokens: number): { localPct: number; claudePct: number } {

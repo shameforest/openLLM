@@ -1,0 +1,8 @@
+{
+  "id": "todo-modul",
+  "title": "Todo-Modul mit Tests",
+  "prompt": "Baue ein kleines Todo-Modul aus zwei Dateien im aktuellen Ordner. Verwende nur die Python-Standardbibliothek, kein pytest.\n\n1. `todo.py` mit der Klasse `TodoListe` (Konstruktor ohne Argumente):\n- `hinzufuegen(text) -> int`: fügt einen offenen Eintrag hinzu und gibt dessen neue ID zurück. IDs sind ganze Zahlen, beginnen bei 1 und steigen pro Eintrag um 1.\n- `erledigen(id)`: markiert den Eintrag mit dieser ID als erledigt. Bei einer unbekannten ID wird KeyError ausgelöst. Ist der Eintrag schon erledigt, passiert nichts (kein Fehler).\n- `offen() -> list[str]`: die Texte aller offenen Einträge in der Reihenfolge des Hinzufügens.\n- `erledigt() -> list[str]`: die Texte aller erledigten Einträge, ebenfalls in der Reihenfolge des Hinzufügens.\n- `speichern(pfad)`: schreibt die Liste als JSON-Datei in UTF-8 (ohne BOM); pfad ist ein str oder ein pathlib.Path.\n- Klassenmethode `laden(pfad) -> TodoListe`: liest eine so geschriebene Datei und gibt eine neue TodoListe zurück. Der Round-Trip aus speichern und laden muss IDs, Texte, Zustände (offen/erledigt) und die nächste zu vergebende ID erhalten, die Nummerierung wird nach dem Laden also fortgesetzt. Umlaute und Sonderzeichen in Texten müssen korrekt erhalten bleiben.\n\n2. `test_todo.py` mit mindestens 5 Tests: Funktionen mit Namen `test_...`, die einfache assert-Anweisungen verwenden. Am Dateiende ruft ein `if __name__ == '__main__':`-Block alle Tests auf, sodass `python test_todo.py` sie ausführt und bei Erfolg mit Exit-Code 0 endet.\n\nFühre `python test_todo.py` aus und stelle sicher, dass alle Tests bestehen. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 20,
+  "kind": "multi"
+}

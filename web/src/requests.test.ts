@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PermissionRequest } from './api'
-import { LOOP_HINT, autoDecision, describePermission, pathsOutside, whyAsked } from './requests'
+import { LOOP_HINT, autoDecision, describePermission, openCodeSafeDirs, pathsOutside, whyAsked } from './requests'
 
 const req = (permission: string, metadata: Record<string, unknown> = {}, patterns: string[] = []): PermissionRequest =>
   ({ id: 'per_1', sessionID: 'ses_1', permission, metadata, patterns, always: [] })
@@ -46,6 +46,21 @@ describe('autoDecision', () => {
   })
 })
 
+describe('OpenCode\'s own data folder (plan mode stores its plans there) — found in the real test', () => {
+  const wd = 'C:\\Users\\Shadow\\code\\demo'
+  const safe = openCodeSafeDirs({ state: 'C:\\Users\\Shadow\\.local\\state\\opencode', home: 'C:\\Users\\Shadow' })
+  it('derives the data folder next to the state folder, never the config folder', () => {
+    expect(safe).toEqual(['C:\\Users\\Shadow\\.local\\state\\opencode', 'C:\\Users\\Shadow\\.local\\share\\opencode'])
+    expect(openCodeSafeDirs(null)).toEqual([])
+  })
+  it('auto-allows writing a plan there, but nothing else outside the working folder', () => {
+    expect(autoDecision(req('external_directory', {}, ['C:\\Users\\Shadow\\.local\\share\\opencode\\plans\\*']), wd, safe)).toEqual({ reply: 'once' })
+    expect(autoDecision(req('bash', { command: 'New-Item -ItemType Directory -Force -Path "C:\\Users\\Shadow\\.local\\share\\opencode\\plans"' }), wd, safe)).toEqual({ reply: 'once' })
+    expect(autoDecision(req('external_directory', {}, ['C:\\Users\\Shadow\\.config\\opencode\\*']), wd, safe)).toBeNull()
+    expect(autoDecision(req('external_directory', {}, ['C:\\data\\*']), wd, safe)).toBeNull()
+  })
+})
+
 describe('pathsOutside', () => {
   it('finds absolute paths that are not inside the working folder (case and slash insensitive)', () => {
     const wd = 'C:\\Users\\Shadow\\code\\demo'
@@ -53,5 +68,14 @@ describe('pathsOutside', () => {
     expect(pathsOutside(`copy ${wd}\\a.txt C:\\Temp\\b.txt`, wd)).toEqual(['C:\\Temp\\b.txt'])
     expect(pathsOutside('type C:\\Users\\Shadow\\code\\demo-old\\x', wd)).toEqual(['C:\\Users\\Shadow\\code\\demo-old\\x'])
     expect(pathsOutside('npm test', wd)).toEqual([])
+  })
+  it('ignores starting an installed program, but not its arguments or programs elsewhere (found in the real test)', () => {
+    const wd = 'C:\\Users\\Shadow\\code\\demo'
+    expect(pathsOutside('& "C:\\Program Files\\Python312\\python.exe" zahlen.py', wd)).toEqual([])
+    expect(pathsOutside('C:\\Users\\Shadow\\AppData\\Local\\Programs\\Python\\Python313\\python.exe -m pytest', wd)).toEqual([])
+    expect(pathsOutside('& "C:\\Program Files\\Python312\\python.exe" C:\\Temp\\x.py', wd)).toEqual(['C:\\Temp\\x.py'])
+    expect(pathsOutside('type "C:\\Program Files\\App\\secret.txt"', wd)).toEqual(['C:\\Program Files\\App\\secret.txt'])
+    expect(pathsOutside('C:\\Temp\\tool.exe', wd)).toEqual(['C:\\Temp\\tool.exe'])
+    expect(autoDecision(req('bash', { command: '& "C:\\Program Files\\Python312\\python.exe" test_zahlen.py' }), wd)).toEqual({ reply: 'once' })
   })
 })

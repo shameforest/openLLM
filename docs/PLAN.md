@@ -46,19 +46,20 @@ Wir trainieren **kein** eigenes Modell (das bräuchte Tausende Grafikkarten). Wi
 | # | Meilenstein | Inhalt | Beweis |
 |---|---|---|---|
 | M0 | Recherche und Plan ✓ | Hardware, Modelle, Hülle, Server, Entscheidungen | dieses Dokument und `RESEARCH.md` |
-| M1 | Fundament | Installer (Ollama + 1 Modell + OpenCode), Starter mit Symbol, alles läuft zusammen, erster selbstständiger Mini-Auftrag | Screenshot + Protokoll vom Shadow-PC |
-| M2 | Projekt-Bedienung | `CLAUDE.md`/Skills/Slash-Befehle fürs Projekt, Plan-Modus, sichtbare Aufgabenliste, Rechte-Stufen, Rückgängig-Punkte (über Git) | Klick-/Terminal-Test mit Nachweis |
-| M3 | Autonomie und Sicherheit | Abschottung (WSL/Docker), Websuche (SearXNG), Browser-Test (Playwright über MCP), Bilder als Eingabe | Testlauf, der eine kleine Web-App baut und prüft |
-| M4 | Power | Unteragenten, Modell-Rollen (weitere Modelle + Blindtest), MCP-Werkzeuge, Hooks, Betrieb ohne Fenster, Nutzungs-Übersicht | Parallel-Test mit zwei Agenten |
-| M5 | Oberfläche und Feinschliff | Web-Oberfläche aufräumen, Desktop-App-Modus wie OpenDali, Design nach deinen Referenzen | Vorher/Nachher-Screenshots |
+| M1 | Fundament ✓ | Installer (Ollama + Modell + OpenCode), Starter mit Symbol, eigene Oberfläche, Begleitdienst | läuft auf dem Shadow-PC seit 2026-10-15 |
+| M2 | Projekt-Bedienung ✓ | Skills/Slash-Befehle, Plan-Modus, sichtbare Aufgabenliste, Rechte-Stufen mit Automatik, Rückgängig über Git-Schnappschüsse, Verlauf | Browser-Tests 2026-10-15 |
+| M3 | Autonomie und Sicherheit — teilweise | ✓ Websuche/-abruf erlaubt, Schleifen-Erkennung, Kontext-Anzeige · offen: Abschottung (WSL/Docker), Browser-Test (Playwright-MCP, angelegt aber aus), Bilder als Eingabe | Testlauf, der eine kleine Web-App baut und prüft |
+| M4 | Power — teilweise | ✓ drei Modelle wählbar, feste Aufgabensammlung zum Vergleichen (`scripts/eval.mjs`), Nutzungs-Übersicht lokal/Claude · bewusst aus: Unteragenten (brachten auf einer Karte nichts) · offen: Hooks, Betrieb ohne Fenster | Testlauf-Bericht je Modell |
+| M5 | Oberfläche und Feinschliff — laufend | eigene Chat-Oberfläche wie Claude statt der OpenCode-Weboberfläche; Feinschliff nach deinen Rückmeldungen | Vorher/Nachher-Screenshots |
 
 *Vieles davon bringt OpenCode schon mit — unsere Arbeit ist Einrichten, Verbinden und Feinschliff, nicht Nachbauen. Das spart Zeit und hält die Qualität hoch.*
 
 ## Arbeitsweise (wie bei OpenDali)
-1. Gebaut und getestet wird in den Cloud-Sitzungen (dafür hast du Guthaben). Der Shadow-PC bekommt Updates über einen Installer-Befehl. Echte Modell-Läufe, Geschwindigkeit und den Blindtest prüfst du dort und schickst Screenshots oder Protokolle.
+1. Gebaut wird in Cloud-Sitzungen oder direkt auf dem Shadow-PC. Der Shadow-PC bekommt Updates über einen Installer-Befehl (`scripts/install.ps1`).
 2. Schritt für Schritt: jede Funktion einzeln bauen, testen, zeigen; während du prüfst, baue ich die nächste.
-3. Hier in der Cloud gibt es **keine Grafikkarte und kein Windows**. Prüfbar sind Konfiguration, Skript-Aufbau und Logik — nicht der echte Modell-Lauf. Das sage ich jedes Mal klar.
-4. Kosten sparen ohne Qualitätsverlust (Skill `savetokens`): Architektur, schwierige Fehler und Endprüfung mache ich selbst; klar umrissene Teile gehen an günstigere Modelle, immer mit Prüfung.
+3. In der Cloud gibt es **keine Grafikkarte und kein Windows**: prüfbar sind dort nur Konfiguration, Skript-Aufbau und Logik. Auf dem Shadow-PC laufen echte Tests mit einer eigenen Test-Instanz, nie mit deinem laufenden OpenDante, und nie während OpenDali rechnet.
+4. Ob eine Änderung wirklich hilft (Modell, Regeln, Denkaufwand), zeigt der Testlauf `node scripts/eval.mjs`: 7 feste Aufgaben, automatisch geprüft, mit Erfolgsquote, Dauer und Tokens.
+5. Kosten sparen ohne Qualitätsverlust (Skill `savetokens`): Architektur, schwierige Fehler und Endprüfung mache ich selbst; klar umrissene Teile gehen an günstigere Modelle, immer mit Prüfung.
 
 ## Risiken und Kippbedingungen
 - **Modellqualität auf 24 GB:** bleibt voraussichtlich unter Claude Code bei langen Läufen (Konfidenz 75). Lösung wäre mehr Grafikspeicher (gemieteter Server) — von dir bewusst ausgeschlossen. Wir holen das Beste aus dem Lokalen heraus.

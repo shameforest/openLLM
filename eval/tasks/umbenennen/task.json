@@ -1,0 +1,8 @@
+{
+  "id": "umbenennen",
+  "title": "Funktion umbenennen",
+  "prompt": "Im aktuellen Ordner liegen lager.py, bestellung.py und rechnung.py. Die Funktion `berechne_preis(menge, einzelpreis)` aus lager.py wird in allen drei Dateien verwendet. Benenne sie in `gesamtpreis` um, und zwar überall: Definition, alle Aufrufe, Importe, Kommentare und Docstrings. Das Verhalten sowie alle anderen Funktionsnamen und Signaturen bleiben unverändert. Der alte Name `berechne_preis` darf danach in keiner der drei Dateien mehr vorkommen. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 10,
+  "kind": "refactor"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "wortzaehler",
+  "title": "Wortzähler-Programm",
+  "prompt": "Erstelle im aktuellen Ordner das Programm wortzaehler.py. Es bekommt den Pfad einer UTF-8-Textdatei als erstes Kommandozeilenargument (sys.argv[1]) und gibt die 3 häufigsten Wörter der Datei auf der Standardausgabe aus, eine Zeile pro Wort, im Format `wort: anzahl` (zum Beispiel `hund: 5`), absteigend nach Häufigkeit sortiert. Regeln: Ein Wort ist eine Folge von Buchstaben (auch Umlaute und ß); alle anderen Zeichen (Satzzeichen, Ziffern, Leerzeichen, Zeilenumbrüche) trennen Wörter. Groß- und Kleinschreibung wird ignoriert, ausgegeben wird das Wort in Kleinbuchstaben. Bei gleicher Häufigkeit gilt die alphabetische Reihenfolge (aufsteigend); das gilt auch für die Auswahl, wenn wegen eines Gleichstands nicht alle Wörter in die Top 3 passen. Gibt es weniger als 3 verschiedene Wörter, werden entsprechend weniger Zeilen ausgegeben. Außer diesen Zeilen wird nichts ausgegeben. Teste das Programm mit der mitgelieferten beispiel.txt. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 8,
+  "kind": "cli"
+}
