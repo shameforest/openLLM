@@ -26,9 +26,7 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU: OpenC
 
 ## Open / to verify on the Shadow PC
 - The `/test` command not yet proven on a real program (plan mode is, 2026-10-15: plan → "Yes" → build, no prompt for the plans dir).
-- OD-20 language servers (`"lsp": true`): OpenCode would download pyright etc. on first use → waits for the user's OK; then measure with the Testlauf.
-- "Denken aus" measured once (7/7, −17 % time, uneven); decide only with harder tasks and `--repeat 2` (OD-25).
-- Verbesserer Lauf 3 proposals OD-24..OD-30 wait for the user's choice (report in the verbesserer skill memory).
+- Asks that remain by design: one-liners that start programs (`subprocess`) or write files; the model sometimes mistypes its working path (seen once: `.copilot` instead of `.opendante`).
 - M3: enable Playwright MCP (Node present); WSL/Docker sandbox (nested virtualization on Shadow unverified); image input.
 - Never run for real (no key, costs): Anthropic call via `/claude`, Audit, Offload (needs the local model to emit `<<<CLAUDE … >>>`, conf 50), Claude half of token counter/overview (unit-tested only), effect of the Autopilot prefix.
 - Does the local model reliably load a named skill via `skill`? (conf 60)
@@ -72,6 +70,11 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU: OpenC
 - 2026-10-15 · Verbesserer block 2 (`a71ada0`) — changes line + Vorher/Nachher + Rückgängig/Wiederherstellen, plan mode, task list card, context gauge + Verdichten, retry display, loop redirect, keep-warm, thinking switch, Claude daily cap, Testlauf, App.tsx split · root cause of the empty changes line: OpenCode snapshots only git folders; "Plan umsetzen" stayed after plan→build in one turn (fixed via the answer's agent) · PROVEN in the browser against test instance 4196.
 - 2026-10-15 · Testlauf baseline (Qwen3.8 27B uncensored, thinking on, test instance): **7/7 solved, 19:00 min**; per task 0:51–7:43 min, 4–27 steps; todo-modul read 348k tokens in 27 steps. All 3 asks were `python -c` one-liners (despite the AGENTS.md rule) → proposal OD-24. Variant `ohne-denken`: also 7/7, 15:47 min (−17 %), 27 % fewer written tokens, but very uneven (todo-modul 7:43 → 2:43, umbenennen 1:45 → 8:04 with 30 steps and 7 tool errors); one run per task is too noisy for a default change → thinking stays on by default.
 - 2026-10-15 · Snapshot cost (measured, capture proxy, no GPU): a git folder with 20,000 files in `node_modules` and no `.gitignore` → 86 s before the first model request (with `.gitignore`: 5 s, same as a 1-file folder; second request 0.8 s). Affects "Sicherung einschalten" and every `npm install` → proposal OD-26.
+- 2026-10-15 · Verbesserer run 3 implemented (`466c71b`, `6741a01`, `269a4fa`) — .gitignore before backups (companion `/git/prepare`), harmless one-liners and chains auto-allowed (false alarms fixed after measuring), helper scripts in `.opendante/tmp/`, file attachments (`FilePicker`, file parts), line-ending-only changes ignored, Escape closes dialogs, Testlauf deletes passed sessions and has `--level`, 6 hard tasks, `npm run e2e` (8 steps, mocked servers, system Chrome).
+- 2026-10-15 · OD-36 found while measuring: `max_tokens` 8192 cut off answers (thinking + whole file) at ~8,185 tokens, the file was never written (Ollama log). `limit.output` 16384 + "write large files in parts": hard tasks 3/6 → 11/12.
+- 2026-10-15 · Thinking measured on hard tasks (×2, uncensored, 16k): with thinking 11/12 in 167:05 min, 192k tokens written, one first step thought 47,894 characters (~11 min) before acting; **without thinking 12/12 in 74:02 min** → default "Schnell" (carry out without thinking, plan with thinking), OD-29.
+- 2026-10-15 · Model comparison (OD-28), hard tasks ×2 without thinking: uncensored 12/12 in 74:02 min, original `qwen3.8:27b` 9/12 in 59:44 min (failed on exact output, decimal numbers in the lexer, rounding) → the uncensored model stays the default, now measured.
+- 2026-10-15 · Language servers (OD-20) measured: `"lsp": true` (OpenCode fetched pyright, 18.6 MB, into `~/.cache/opencode/packages`), hard tasks ×1 without thinking: 5/6 in 35:54 min vs 6/6 per round in ~37 min without; the one failure was a logic error no language server catches → stays off; the syntax-check rule in AGENTS.md covers the cheap part.
 
 ## Log
 - 2026-10-15: Modell/Seitenleiste/Tokenzähler, Verlauf, Fortschritt, Feststeck-Fix, Ordner-Browser, Klick-Fix; Verbesserer OD-01..OD-23 (zwei Blöcke), Testlauf 7/7 (siehe History); alles am Shadow-PC gemessen.
