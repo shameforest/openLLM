@@ -153,7 +153,13 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU. Assem
 - Der native `/pick-folder` bleibt als ungenutzter Fallback im Companion.
 - Tests: 80 Vitest (11 Dateien, neu `fs.test.ts`) + 27 Companion-Checks (neu: rename/delete + /fs Wurzeln/Unterordner/Fehler).
 
+## Fix: Klick auf Verlauf-Chat öffnete nicht zuverlässig (2026-10-15)
+- Nutzer-Report: Klick auf einen Chat im Verlauf tat nichts. Ursache: Beim Umbau auf `HistoryItem` (Umbenennen/Löschen) war nur noch der schmale Titel-Knopf (`flex-1`) anklickbar; der rechte Teil der Zeile war das Datum (`elementFromPoint` bestätigt: rechts = `SPAN` Datum, kein Öffnen). Klick dorthin → nichts. `openChat` selbst war korrekt (per `.click()` reproduziert: Chat lud).
+- Fix: Die GANZE Zeile öffnet jetzt den Chat (`role=button` + `onClick` auf dem Zeilen-Div, Enter/Leertaste ebenso); ✎/🗑 liegen darüber und rufen `stopPropagation`, damit sie nicht zusätzlich öffnen. Datum immer sichtbar, Aktionen erscheinen bei Hover an seiner Stelle.
+- BEWIESEN (Shadow-PC, Test-Companion mit echten Chats): echter Klick RECHTS auf der Zeile (Datumsbereich) öffnet den Chat (Inhalt wechselt, Chat wandert nach oben); ✎ öffnet das Umbenennen-Feld, OHNE den angezeigten Chat zu wechseln. 80 Vitest + 27 Companion-Checks.
+
 ## Log
+- 2026-10-15: Klick auf Verlauf-Chat öffnet jetzt überall auf der Zeile (vorher nur schmaler Titel).
 - 2026-10-15: Chats umbenennen/löschen; nativer Ordner-Dialog durch In-App-Browser mit Mehrfachauswahl ersetzt (öffnet zuverlässig, Entfernen+neu Wählen geht wieder). Am echten Dateisystem bewiesen.
 - 2026-10-15: Feststecken behoben — Erlaubnis-/Rückfrage-Karte + Auto-Erlauben (Standard an) + Doom-Loop-Umlenkung + breitere Erlaubt-Liste + task deny. Ursachen an echten Sitzungen/DB belegt, Fix am echten Modell bewiesen.
 - 2026-10-15: Fortschritt Schritt für Schritt (gemessene Ereignisfolge), Countdown aus gelernten Schrittdauern, Modell-Laden erkannt; zensurfreies Modell mit Werkzeugen bewiesen.

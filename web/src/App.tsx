@@ -521,27 +521,35 @@ function HistoryItem({ c, active, disabled, onOpen, onRename, onDelete }: {
         onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setName(c.title); setEditing(false) } }} />
     )
   }
+  // The WHOLE row opens the chat (a click anywhere, not just on the title). The rename/delete controls sit on top and
+  // stop the click from also opening, so they stay usable. (Earlier only the narrow title was clickable, so clicks on
+  // the right of the row did nothing.)
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn() }
   return (
-    <div className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ${active ? 'bg-user text-ink' : 'text-ink2 hover:bg-user'} ${disabled ? 'opacity-50' : ''}`}
+    <div role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled || undefined}
+      onClick={() => { if (!disabled) onOpen() }}
+      onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen() } }}
+      title={`${c.title}\n${c.workdir || 'Standardordner'} · ${c.messages} Nachrichten`}
+      className={`group flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 ${active ? 'bg-user text-ink' : 'text-ink2 hover:bg-user'} ${disabled ? 'cursor-default opacity-50' : ''}`}
       data-testid="history-item" aria-current={active ? 'true' : undefined}>
-      <button className="min-w-0 flex-1 text-left disabled:cursor-default" onClick={onOpen} disabled={disabled}
-        title={`${c.title}\n${c.workdir || 'Standardordner'} · ${c.messages} Nachrichten`}>
-        <span className="block truncate">{c.title}</span>
-      </button>
+      <span className="min-w-0 flex-1 truncate">{c.title}</span>
       {confirm ? (
         <span className="flex shrink-0 items-center gap-1 text-[11px]">
           <span className="text-ink3">löschen?</span>
-          <button className="rounded px-1 text-red-400 hover:bg-line" onClick={onDelete} data-testid="history-delete-yes">Ja</button>
-          <button className="rounded px-1 text-ink3 hover:bg-line" onClick={() => setConfirm(false)}>Nein</button>
+          <button className="rounded px-1 text-red-400 hover:bg-line" onClick={stop(onDelete)} data-testid="history-delete-yes">Ja</button>
+          <button className="rounded px-1 text-ink3 hover:bg-line" onClick={stop(() => setConfirm(false))}>Nein</button>
         </span>
       ) : (
-        <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
-          <button className="rounded px-1 py-0.5 text-[12px] text-ink3 hover:bg-line hover:text-ink2" title="Umbenennen"
-            onClick={() => { setName(c.title); setEditing(true) }} data-testid="history-rename">✎</button>
-          <button className="rounded px-1 py-0.5 text-[12px] text-ink3 hover:bg-line hover:text-red-400" title="Löschen"
-            onClick={() => setConfirm(true)} data-testid="history-delete">🗑</button>
-          <span className="ml-0.5 text-[11px] text-ink3">{relDate(c.updatedAt)}</span>
-        </span>
+        <>
+          {/* Date when idle; the two actions appear on hover in its place. */}
+          <span className="shrink-0 text-[11px] text-ink3 group-hover:hidden">{relDate(c.updatedAt)}</span>
+          <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+            <button className="rounded px-1 py-0.5 text-[12px] text-ink3 hover:bg-line hover:text-ink2" title="Umbenennen"
+              onClick={stop(() => { setName(c.title); setEditing(true) })} data-testid="history-rename">✎</button>
+            <button className="rounded px-1 py-0.5 text-[12px] text-ink3 hover:bg-line hover:text-red-400" title="Löschen"
+              onClick={stop(() => setConfirm(true))} data-testid="history-delete">🗑</button>
+          </span>
+        </>
       )}
     </div>
   )
