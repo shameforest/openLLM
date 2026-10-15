@@ -233,12 +233,19 @@ async function main() {
   const history = path.join(RESULTS, 'verlauf.jsonl')
   const before = fs.existsSync(history) ? fs.readFileSync(history, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
   fs.appendFileSync(history, JSON.stringify(summary) + '\n')
-  // OpenCode may still hold a file in the last folder open (measured: EPERM right after the run); a leftover folder
-  // must not lose the result, so cleanup is retried briefly and otherwise only reported.
+  // The EPERM seen after a run is most likely a file OpenCode still had open, so cleanup is retried briefly; a leftover
+  // folder is only reported. Git's read-only object files are made writable first, for tools that refuse to delete them.
   if (!args.keep) {
+    const writable = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name)
+        if (e.isDirectory()) writable(p)
+        else { try { fs.chmodSync(p, 0o666) } catch { /* gone or locked */ } }
+      }
+    }
     let cleaned = false
     for (let i = 0; i < 5 && !cleaned; i++) {
-      try { fs.rmSync(base, { recursive: true, force: true }); cleaned = true } catch { await sleep(2000) }
+      try { if (fs.existsSync(base)) writable(base); fs.rmSync(base, { recursive: true, force: true }); cleaned = true } catch { await sleep(2000) }
     }
     if (!cleaned) console.log(`(Arbeitsordner ${base} ließ sich noch nicht löschen; später von Hand entfernen.)`)
   }
