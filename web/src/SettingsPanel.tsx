@@ -128,14 +128,14 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
             <span className="text-ink3">Nachdenken vor jedem Schritt:</span>
-            <select className="rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none" value={s.thinkOff ? 'aus' : 'an'}
-              onChange={(e) => s.set({ thinkOff: e.target.value === 'aus' })} data-testid="think-off">
-              <option value="an">Gründlich (Standard)</option>
-              <option value="aus">Aus — schneller, für einfache Aufgaben</option>
+            <select className="rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none" value={s.thinkMode}
+              onChange={(e) => s.set({ thinkMode: e.target.value === 'gruendlich' ? 'gruendlich' : 'schnell' })} data-testid="think-off">
+              <option value="schnell">Schnell — umsetzen ohne, planen mit Nachdenken (Standard)</option>
+              <option value="gruendlich">Gründlich — immer nachdenken</option>
             </select>
           </div>
           <p className="mt-1 text-[12px] text-ink3">
-            Das Modell überlegt sonst vor jedem Schritt in Ruhe (sichtbar im Gedankengang). „Aus“ spart diese Zeit, macht aber mehr Fehler; gemessen bei einer Rechenfrage: 1 s statt 10 s, dafür falsch.
+            Gemessen an 6 schweren Aufgaben, je zweimal: ohne Nachdenken 12 von 12 gelöst in 74 min, mit Nachdenken 11 von 12 in 167 min. Der Agent prüft sich beim Umsetzen über Tests statt im Kopf. Ein Plan („Erst planen“) wird immer gründlich durchdacht.
           </p>
         </Section>
 

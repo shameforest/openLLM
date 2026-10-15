@@ -35,9 +35,12 @@ interface State extends Modes {
   keepWarmMin: number // keep the local model loaded this many minutes after an answer (0 = Ollama's 5-minute default)
   planFirst: boolean // send the next request to the read-only "plan" agent first; "Plan umsetzen" then runs it
   claudeDailyUsd: number // daily spending cap for the paid Claude modes (0 = no cap)
-  thinkOff: boolean // OD-16: send with the model variant "ohne-denken" (reasoning_effort none): faster, less careful
+  // OD-16/OD-29: "schnell" = carry out without thinking (model variant "ohne-denken", reasoning_effort none), plan mode
+  // still thinks; "gruendlich" = always think. Measured 2026-10-15, 6 hard Testlauf tasks × 2: without thinking 12/12
+  // in 74 min, with thinking 11/12 in 167 min. A new key, so existing setups get the measured default too.
+  thinkMode: 'schnell' | 'gruendlich'
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkOff'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode'>>) => void
   addFolders: (paths: string[]) => void // remember folders and make the first one active
   removeFolder: (path: string) => void
 }
@@ -59,7 +62,7 @@ export const useSettings = create<State>()(
       keepWarmMin: 60,
       planFirst: false,
       claudeDailyUsd: 2,
-      thinkOff: false,
+      thinkMode: 'schnell',
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
       set: (p) => set(p),
       addFolders: (paths) => set((s) => {

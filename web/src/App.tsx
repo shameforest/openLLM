@@ -324,7 +324,8 @@ export default function App() {
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         const title = chatRef.current.title
         if (!sessionRef.current) sessionRef.current = (await createSession(title, modes.workdir)).id
-        const variant = modes.thinkOff ? 'ohne-denken' : undefined // OD-16
+        // Carrying out runs without thinking unless "Gründlich" is chosen; a plan is always thought through (OD-29).
+        const variant = agent === 'plan' || modes.thinkMode === 'gruendlich' ? undefined : 'ohne-denken'
         try {
           await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir, agent, variant, files)
         } catch {
