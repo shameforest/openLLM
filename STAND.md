@@ -12,7 +12,9 @@ Alle 23 Verbesserer-Vorschläge sind umgesetzt: Rückgängig mit Vorher/Nachher-
 ## Gerade
 - [ ] (du) Update hochladen (push) und `install.ps1 -SkipModel` ausführen, dann OpenDante neu starten
 ## Als Nächstes
-- [ ] (du) Entscheiden: harmlose Python-Einzeiler automatisch erlauben? (OD-24)
+- [ ] (du) Auswahl aus Verbesserer-Lauf 3 treffen (empfohlen: OD-26, OD-25, OD-24)
+- [ ] OD-26: „Sicherung einschalten“ legt .gitignore an (sonst bis zu Minuten Vorlauf)
+- [ ] OD-25: schwerere Testaufgaben mit Wiederholung
 - [ ] (du) Entscheiden: Sprachserver für Fehlerprüfung herunterladen lassen? (OD-20)
 - [ ] M3: Browser-Tests über Playwright einschalten
 - [ ] Datei anhängen / Referenzen (im „+"-Menü noch „bald")
