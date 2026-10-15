@@ -51,28 +51,37 @@ export function pathsOutside(text: string, workdir: string, safe: string[] = [])
   return found.filter((p) => !inside(p, [workdir, ...safe]) && !(PROGRAM.test(p) && PROGRAM_DIRS.test(norm(p))))
 }
 
-/** OpenCode's own data and state folders (from GET /path), e.g. …\.local\share\opencode\plans for plan mode. Its config
- *  folder is deliberately NOT included: there the agent could change its own permissions. */
+/** OpenCode's own data and state folders (from GET /path), e.g. …\.local\share\opencode\plans for plan mode, and its
+ *  scratch folder %TEMP%\opencode, where the agent puts test output (measured: 3 of 11 asks in the hard Testlauf). Its
+ *  config folder is deliberately NOT included: there the agent could change its own permissions. */
 export function openCodeSafeDirs(paths: { state?: string; home?: string } | null): string[] {
   if (!paths?.state) return []
   const data = paths.state.replace(/([\\/])state([\\/])opencode$/i, '$1share$2opencode')
-  return data !== paths.state ? [paths.state, data] : [paths.state]
+  const dirs = data !== paths.state ? [paths.state, data] : [paths.state]
+  if (paths.home && /^[a-z]:\\/i.test(paths.home)) dirs.push(`${paths.home}\\AppData\\Local\\Temp\\opencode`)
+  return dirs
 }
 
 // OD-24: interpreter one-liners stay on the risky list, EXCEPT short checks that only import, compute and print
 // (measured 2026-10-15: 3 of 7 Testlauf tasks stopped on such a one-liner although AGENTS.md said not to use them).
 // Each part of a command chain is judged on its own (see splitCommand); inside a part nothing may follow the quoted
-// code, and the code must not contain the quote character (that would end the string and append another command). Every write/delete/network/process/dynamic-code call and
-// shell expansion ($( ), ${ }, backticks) makes it ask again. False alarms only cost a question.
+// code, and the code must not contain the quote character (that would end the string and append another command).
+// Every write/delete/network/process/dynamic-code call and shell expansion ($( ), ${ }, backticks) makes it ask
+// again. False alarms only cost a question.
 const ONE_LINER = /^(?:(?:python3?|py)\s+-c|node\s+(?:-e|-p|--eval|--print))\s+(["'])([\s\S]*)\1$/i
 const INTERPRETER = /^(?:(?:python3?|py)\s+-c|node\s+(?:-e|-p|--eval|--print))\b/i
 const ONE_LINER_DANGER = new RegExp([
-  String.raw`\bopen\s*\([^)]*['"][^'"]*[wax+]`, // open(…, 'w' / 'a' / 'x' / '+')
+  // open(…, 'w' / 'a' / 'x' / '+') as 2nd argument or mode=…; a file NAME with an "a" in it is no write (false alarm
+  // measured in the hard Testlauf: open('aufgaben.json', encoding='utf-8'))
+  String.raw`\bopen\s*\(\s*[^,()]+,\s*['"][rbt]*[wax+][rwabxt+]*['"]|\bmode\s*=\s*['"][rbt]*[wax+]`,
   String.raw`\.(write_text|write_bytes|write|unlink|rmdir|rename|touch|mkdir|chmod|symlink_to|hardlink_to)\s*\(`,
   String.raw`\b(remove|unlink|rmdir|removedirs|rename|renames|makedirs|mkdir|chmod|chown|truncate|system|popen|spawn\w*|exec[lv]\w*|kill|startfile|rmtree|move|copy\w*)\s*\(`,
   String.raw`\bos\.replace\s*\(|(pathlib|Path\s*\()[\s\S]*\.replace\s*\(`, // replacing files, not str.replace
   String.raw`\b(shutil|subprocess|socket|urllib|requests|http|ftplib|smtplib|ctypes|winreg|webbrowser|multiprocessing|asyncio|importlib|pickle|marshal|child_process|fs|net|https|dgram|worker_threads|vm)\b`,
-  String.raw`\b(__import__|exec|eval|compile|globals|setattr|delattr|require|import|Function)\s*\(`,
+  String.raw`\b(__import__|exec|eval|compile|globals|setattr|delattr|Function)\s*\(`,
+  // node: loading the project's own modules (import('./index.mjs'), require('../x')) is like `python -c "import x"`;
+  // any other module (fs, child_process, an npm package) still asks
+  String.raw`\b(require|import)\s*\(\s*(?!['"]\.\.?\/)`,
   String.raw`\bprocess\.(exit|kill|binding|dlopen)\b`,
   String.raw`\$\(|\$\{|` + '`',
 ].join('|'), 'i')

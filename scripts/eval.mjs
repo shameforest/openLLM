@@ -163,8 +163,9 @@ async function runTask(task, workdir, safeDirs) {
   const c = spawnSync(cmd, checkArgs, { cwd: workdir, encoding: 'utf8', timeout: 60_000, windowsHide: true })
   const output = `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split(/\r?\n/).filter(Boolean)
   const passed = c.status === 0
-  // Test sessions would otherwise pile up in OpenCode's session database, also the user's (OD-32).
-  if (!args.keep) await api(`/session/${session.id}${q(workdir)}`, { method: 'DELETE' }).catch(() => {})
+  // Test sessions would otherwise pile up in OpenCode's session database, also the user's (OD-32). Failed ones stay
+  // for diagnosis (their id is in the report).
+  if (!args.keep && passed) await api(`/session/${session.id}${q(workdir)}`, { method: 'DELETE' }).catch(() => {})
   return {
     task: task.id, kind: task.kind, passed, timedOut, seconds: Math.round(seconds), steps, tools, toolErrors,
     tokensRead: read, tokensWritten: written, asks, asked, autoAllowed, questions, error,

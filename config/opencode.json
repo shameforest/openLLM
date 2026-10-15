@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "_note": "OpenDante default OpenCode config, installed to ~/.config/opencode/ by scripts/install.ps1, which validates it with `opencode models` before keeping it. Pinned to OpenCode 1.x (OpenCode 2 changes this schema and the server API). Only real OpenCode keys inside blocks: a comment key inside `permission` is read as a rule and makes the whole config invalid. limit.context/output MUST be set (they default to 0); temperature must be true for agents to set it. Default model = the uncensored Qwen3.8 27B (list: config/models.json). task=deny: subagents of a local 27B model gave no benefit on one GPU and failed with Ollama 'no user query found in messages'. Bash rules: last match wins, so the ask/deny lines come after the allow lines. Do not set external_directory here and do not set a plain edit:deny for the plan agent: both would override OpenCode's built-in exception that lets plan mode write its plan to ~/.local/share/opencode/plans (measured 2026-10-15 via GET /agent). Variant ohne-denken (OD-16): reasoningEffort reaches Ollama as reasoning_effort none and switches Qwen3.8's thinking off; low and think:false had no effect (measured 2026-10-15).",
+  "_note": "OpenDante default OpenCode config, installed to ~/.config/opencode/ by scripts/install.ps1, which validates it with `opencode models` before keeping it. Pinned to OpenCode 1.x (OpenCode 2 changes this schema and the server API). Only real OpenCode keys inside blocks: a comment key inside `permission` is read as a rule and makes the whole config invalid. limit.context/output MUST be set (they default to 0); output 16384, not 8192: with thinking plus a whole file in one step the model hit 8192 and the cut-off answer never created the file (measured 2026-10-15, 2 of 6 hard Testlauf tasks); temperature must be true for agents to set it. Default model = the uncensored Qwen3.8 27B (list: config/models.json). task=deny: subagents of a local 27B model gave no benefit on one GPU and failed with Ollama 'no user query found in messages'. Bash rules: last match wins, so the ask/deny lines come after the allow lines. Do not set external_directory here and do not set a plain edit:deny for the plan agent: both would override OpenCode's built-in exception that lets plan mode write its plan to ~/.local/share/opencode/plans (measured 2026-10-15 via GET /agent). Variant ohne-denken (OD-16): reasoningEffort reaches Ollama as reasoning_effort none and switches Qwen3.8's thinking off; low and think:false had no effect (measured 2026-10-15).",
   "model": "ollama/orcarouter/Qwen3.8-27B-Uncensored:q4_K_M",
   "autoupdate": false,
   "share": "disabled",
@@ -13,19 +13,19 @@
         "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M": {
           "name": "Qwen3.8 27B Uncensored (local)",
           "temperature": true,
-          "limit": { "context": 65536, "output": 8192 },
+          "limit": { "context": 65536, "output": 16384 },
           "variants": { "ohne-denken": { "reasoningEffort": "none" } }
         },
         "qwen3.8:27b": {
           "name": "Qwen3.8 27B (local)",
           "temperature": true,
-          "limit": { "context": 65536, "output": 8192 },
+          "limit": { "context": 65536, "output": 16384 },
           "variants": { "ohne-denken": { "reasoningEffort": "none" } }
         },
         "huihui_ai/Qwen3.8-abliterated:27b-q4_K_M": {
           "name": "Qwen3.8 27B Abliterated huihui (local)",
           "temperature": true,
-          "limit": { "context": 65536, "output": 8192 },
+          "limit": { "context": 65536, "output": 16384 },
           "variants": { "ohne-denken": { "reasoningEffort": "none" } }
         }
       }

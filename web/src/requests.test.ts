@@ -50,8 +50,12 @@ describe('OpenCode\'s own data folder (plan mode stores its plans there) — fou
   const wd = 'C:\\Users\\Shadow\\code\\demo'
   const safe = openCodeSafeDirs({ state: 'C:\\Users\\Shadow\\.local\\state\\opencode', home: 'C:\\Users\\Shadow' })
   it('derives the data folder next to the state folder, never the config folder', () => {
-    expect(safe).toEqual(['C:\\Users\\Shadow\\.local\\state\\opencode', 'C:\\Users\\Shadow\\.local\\share\\opencode'])
+    expect(safe).toEqual(['C:\\Users\\Shadow\\.local\\state\\opencode', 'C:\\Users\\Shadow\\.local\\share\\opencode', 'C:\\Users\\Shadow\\AppData\\Local\\Temp\\opencode'])
     expect(openCodeSafeDirs(null)).toEqual([])
+  })
+  it('auto-allows OpenCode\'s scratch folder in %TEMP% (3 of 11 asks in the hard Testlauf)', () => {
+    expect(autoDecision(req('bash', { command: 'python umsatz.py | Out-File -Encoding utf8 "C:\\Users\\Shadow\\AppData\\Local\\Temp\\opencode\\basis.txt"' }), wd, safe)).toEqual({ reply: 'once' })
+    expect(autoDecision(req('bash', { command: 'Set-Content C:\\Users\\Shadow\\AppData\\Local\\Temp\\other\\x.txt 1' }), wd, safe)).toBeNull()
   })
   it('auto-allows writing a plan there, but nothing else outside the working folder', () => {
     expect(autoDecision(req('external_directory', {}, ['C:\\Users\\Shadow\\.local\\share\\opencode\\plans\\*']), wd, safe)).toEqual({ reply: 'once' })
@@ -75,6 +79,9 @@ describe('harmless one-liners (OD-24: 3 of 7 Testlauf tasks stopped on one)', ()
       'python wortzaehler.py .opendante\\tmp\\test.txt; python -c "print(\'check\')"',
       '"banana Apfel" | Out-File -Encoding utf8 .opendante\\tmp\\t.txt; python -c "print(2)"',
       'python -m py_compile todo.py && python -c "from todo import TodoListe; print(TodoListe().offen())"',
+      // false alarms from the hard Testlauf
+      'python -c "import json; p=json.load(open(\'aufgaben.json\',encoding=\'utf-8\')); print(len(p))"',
+      'node -e "import(\'./index.mjs\').then(({berechne}) => console.log(berechne(\'2^3\')))"',
     ]) {
       expect(harmlessOneLiner(c), c).toBe(true)
       expect(autoDecision(req('bash', { command: c }), wd), c).toEqual({ reply: 'once' })
@@ -103,6 +110,10 @@ describe('harmless one-liners (OD-24: 3 of 7 Testlauf tasks stopped on one)', ()
       'python -c "print(1)" && del /q build',
       'python -c "print(1)"; python -c "import os; os.remove(\'x\')"',
       'python -c "print(\'unbalanced)"; Remove-Item x',
+      'python -c "open(\'a.json\', \'w\').write(\'{}\')"',
+      'python -c "open(\'log.txt\', mode=\'a\').write(\'x\')"',
+      'node -e "import(\'fs\').then(f => f.rmSync(\'x\'))"',
+      'node -e "import(\'node:child_process\').then(c => c.execSync(\'dir\'))"',
     ]) expect(autoDecision(req('bash', { command: c }), wd), c).toBeNull()
   })
 })
