@@ -7,7 +7,9 @@
 # NOTE: every external command marked "VERIFY" below is from research, not yet run on Windows.
 # The exact OpenCode config path and the Ollama tag are confirmed on the first real run.
 param(
-    [string]$Model = "qwen3.8:27b",   # the first local model (Apache-2.0); VERIFY the tag at ollama.com/library
+    # Default local model: the uncensored (abliterated) Qwen3.8 27B, Apache-2.0, 18 GB (checked on ollama.com 2026-10-15).
+    # The original stays selectable in the app: -Model qwen3.8:27b
+    [string]$Model = "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M",
     [switch]$SkipModel
 )
 
@@ -100,7 +102,7 @@ if ($SkipModel) {
 } else {
     # 'ollama pull' starts the local server itself if needed.
     ollama pull $Model
-    if ($LASTEXITCODE -ne 0) { Fail "Modell-Download fehlgeschlagen. Erneut starten setzt ihn fort. Tag pruefen: ollama.com/library" }
+    if ($LASTEXITCODE -ne 0) { Fail "Modell-Download fehlgeschlagen. Erneut starten setzt ihn fort. Namen pruefen auf ollama.com: $Model" }
     Ok "$Model vorhanden"
 }
 

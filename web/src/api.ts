@@ -4,7 +4,6 @@
 // no restart. Empty directory = the server's own cwd (where the launcher started it).
 
 export const DEFAULT_BASE = 'http://127.0.0.1:4096'
-export const MODEL = { providerID: 'ollama', modelID: 'qwen3.8:27b' }
 
 /** `?directory=…` query suffix when a working folder is set, else empty. */
 const dirQuery = (dir?: string) => (dir && dir.trim() ? `?directory=${encodeURIComponent(dir.trim())}` : '')
@@ -33,11 +32,11 @@ export async function health(): Promise<Health | null> {
 export const createSession = (title: string, dir?: string) =>
   call<{ id: string }>(`/session${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ title }) })
 
-/** Send a user prompt. Returns at once (204); the answer arrives as events on the stream. */
-export const sendPrompt = (sessionID: string, text: string, dir?: string, agent = 'build') =>
+/** Send a user prompt to the given local (Ollama) model. Returns at once (204); the answer arrives as events. */
+export const sendPrompt = (sessionID: string, text: string, modelID: string, dir?: string, agent = 'build') =>
   call<void>(`/session/${sessionID}/prompt_async${dirQuery(dir)}`, {
     method: 'POST',
-    body: JSON.stringify({ agent, model: MODEL, parts: [{ type: 'text', text }] }),
+    body: JSON.stringify({ agent, model: { providerID: 'ollama', modelID }, parts: [{ type: 'text', text }] }),
   })
 
 export const abort = (sessionID: string, dir?: string) =>

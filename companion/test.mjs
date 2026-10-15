@@ -35,8 +35,13 @@ try {
   const skillList = await fetch(base + '/skills').then((r) => r.json())
   ok(Array.isArray(skillList) && skillList.some((x) => x.slug === 'test-runner' && x.description === 'runs tests'), 'GET /skills lists the saved skill with its description')
 
-  const pf = await post('/pick-folder', {})
-  ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
+  if (process.platform !== 'win32') { // on Windows this would open the real folder dialog
+    const pf = await post('/pick-folder', {})
+    ok(pf.path === '' && typeof pf.note === 'string', 'pick-folder replies cleanly on non-Windows (no path, a note)')
+  }
+
+  const badModel = await post('/update/models', { model: 'qwen; rm -rf /' })
+  ok(badModel.error && /Modellname/.test(badModel.error), 'model update rejects a malformed model name (nothing is run)')
 
   // Projekte (GitHub)
   const repos0 = await fetch(base + '/repos').then((r) => r.json())

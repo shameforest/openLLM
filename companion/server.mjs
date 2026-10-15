@@ -15,7 +15,9 @@ const ROOT = process.env.OPENDANTE_ROOT || path.resolve(HERE, '..')
 const DIST = path.join(ROOT, 'web', 'dist')
 const CFG = process.env.OPENCODE_CONFIG_DIR || path.join(os.homedir(), '.config', 'opencode')
 const PORT = Number(process.env.OPENDANTE_COMPANION_PORT || 4097)
-const MODEL = process.env.OPENDANTE_MODEL || 'qwen3.8:27b'
+const MODEL = process.env.OPENDANTE_MODEL || 'orcarouter/Qwen3.8-27B-Uncensored:q4_K_M' // default local model (uncensored)
+// An Ollama model name like "qwen3.8:27b" or "user/Model-Name:q4_K_M" — nothing else may reach `ollama pull`.
+const modelOk = (m) => typeof m === 'string' && /^[\w.-]+(\/[\w.-]+)?(:[\w.-]+)?$/.test(m)
 const PROJECTS = process.env.OPENDANTE_PROJECTS || path.join(os.homedir(), 'OpenDante-Projekte')
 
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }
@@ -99,11 +101,13 @@ function pickFolder() {
   })
 }
 
-/** Fire an update script and return at once. Windows only (git/powershell/ollama live there). */
-function runUpdate(kind) {
+/** Fire an update script and return at once. Windows only (git/powershell/ollama live there). `model` = the local
+ *  model chosen in Einstellungen (pulled by "Modelle aktualisieren"); falls back to the default. */
+function runUpdate(kind, model) {
+  if (kind === 'models' && model && !modelOk(model)) throw new Error('Ungültiger Modellname.')
   if (process.platform !== 'win32') return { started: false, note: 'Updates laufen nur unter Windows.' }
   let cmd, args
-  if (kind === 'models') { cmd = 'ollama'; args = ['pull', MODEL] }
+  if (kind === 'models') { cmd = 'ollama'; args = ['pull', model || MODEL] }
   else { cmd = 'powershell.exe'; args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `Set-Location '${ROOT}'; git pull; ./scripts/install.ps1 -SkipModel`] }
   const child = spawn(cmd, args, { detached: true, stdio: 'ignore', cwd: ROOT })
   child.unref()
@@ -243,7 +247,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/pick-folder') return sendJson(res, 200, await pickFolder())
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
-    if (req.method === 'POST' && url.pathname === '/update/models') return sendJson(res, 200, runUpdate('models'))
+    if (req.method === 'POST' && url.pathname === '/update/models') { const b = await readBody(req); return sendJson(res, 200, runUpdate('models', b.model)) }
     if (req.method === 'GET') return serveStatic(req, res)
     sendJson(res, 404, { error: 'not found' })
   } catch (e) {

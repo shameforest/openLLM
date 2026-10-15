@@ -20,6 +20,8 @@ Product/display name is "OpenDante"; the Git repo and filesystem paths keep the 
 - **Harness: extend OpenCode** — github.com/anomalyco/opencode, MIT [checked 2026-10-14: repo page; the old `sst/opencode` redirects here]. No fork: markdown agents + one plugin + MCP servers.
 - **Model server: Ollama** (MIT), same ggml kernels as llama.cpp, auto model-swap. Fall back to `llama-server` for tool-call issues or >2 parallel agents.
 - **First model: Qwen3.8-27B, Apache-2.0** — name and scores are UNVERIFIED (from web-search summaries only; Hugging Face/Ollama were unreachable in the cloud). Confirm the exact Ollama tag and the LICENSE file on download day. Start with ONE model, add the others + a blind test later.
+- **Default model since 2026-10-15: the uncensored (abliterated) `orcarouter/Qwen3.8-27B-Uncensored:q4_K_M`** (user's wish; Apache-2.0 + tools + thinking on its ollama.com page). The original `qwen3.8:27b` and `huihui_ai/Qwen3.8-abliterated:27b-q4_K_M` stay selectable in Einstellungen. Keep `LOCAL_MODELS` (web/src/settings.ts), `config/opencode.json` and `install.ps1` in sync.
+- **OpenCode stream quirk (measured):** thinking arrives in a part of type `reasoning` whose deltas say `field:"text"` — route by part id (web/src/stream.ts), never by field.
 - **Run location: Shadow PC only** (local, free). No rented server (user's choice).
 
 ## Honest expectation

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CLAUDE_MODELS, useSettings } from './settings'
+import { CLAUDE_MODELS, LOCAL_MODELS, useSettings } from './settings'
 import { OFFLINE_HINT, companionPost } from './companion'
 import { useSkills } from './skills'
 import { cloneRepo, gitAction, useProjects } from './projects'
@@ -92,6 +92,14 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
             value={s.globalInstructions} onChange={(e) => s.set({ globalInstructions: e.target.value })} data-testid="global-instructions" />
         </Section>
 
+        {/* Local model */}
+        <Section title="Lokales Modell" hint="Das Modell auf deiner Grafikkarte, mit dem OpenDante arbeitet. „Uncensored“ ist dasselbe Qwen-Modell ohne eingebaute Ablehnungen. Ein neu gewähltes Modell einmal mit „Modelle aktualisieren“ (unten) herunterladen.">
+          <select className="w-full rounded-lg border border-line bg-bg p-2 text-[14px] outline-none" value={s.localModel} onChange={(e) => s.set({ localModel: e.target.value })} data-testid="local-model">
+            {LOCAL_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.note}</option>)}
+          </select>
+          <div className="mono mt-1.5 break-all text-[12px] text-ink3">{s.localModel}</div>
+        </Section>
+
         {/* Claude API */}
         <Section title="Claude-Verbindung (API)" hint="Einmalig deinen Anthropic-Schlüssel eintragen und speichern. Danach laufen die Modi „Mit Claude beschleunigen“ und „Claude-Audit“ automatisch — ohne Eingabe pro Aufgabe. Die Aufrufe kosten API-Gebühren.">
           <input type="password" className="w-full rounded-lg border border-line bg-bg p-2 text-[14px] outline-none"
@@ -182,7 +190,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
         <Section title="Updates" hint="Holt die neueste Version bzw. die neuesten Modelle — wie bei OpenDali. Nach einem App-Update OpenDante einmal neu starten (Fenster schließen und Desktop-Symbol erneut öffnen), damit die neue Version vollständig greift.">
           <div className="flex flex-wrap gap-2">
             <button className="btn-accent" onClick={() => run('OpenDante aktualisiert — bitte neu starten', () => companionPost('/update/app'))} data-testid="update-app">OpenDante aktualisieren (GitHub)</button>
-            <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => run('Modelle aktualisiert', () => companionPost('/update/models'))} data-testid="update-models">Modelle aktualisieren</button>
+            <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => run('Modell-Download gestartet (dauert einige Minuten)', () => companionPost('/update/models', { model: s.localModel }))} data-testid="update-models">Modelle aktualisieren</button>
           </div>
         </Section>
 

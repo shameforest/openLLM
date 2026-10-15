@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { offloadTasks, taskSplit } from './claude'
+import { hideOffloadMarkers, offloadTasks, taskSplit } from './claude'
+
+describe('hideOffloadMarkers', () => {
+  it('replaces a closed handoff block with a short note', () => {
+    expect(hideOffloadMarkers('Vorher.\n<<<CLAUDE\nSortiere eine Liste.\n>>>\nNachher.'))
+      .toBe('Vorher.\n↗ Teilaufgabe an Claude übergeben (Ergebnis folgt unten).\nNachher.')
+  })
+  it('cuts a block that is still streaming in', () => {
+    expect(hideOffloadMarkers('Text <<<CLAUDE Sortiere ei')).toBe('Text ↗ Teilaufgabe an Claude übergeben (Ergebnis folgt unten).')
+  })
+  it('leaves normal text alone', () => {
+    expect(hideOffloadMarkers('ganz normal')).toBe('ganz normal')
+  })
+})
 
 describe('taskSplit', () => {
   it('splits by output tokens and sums to 100', () => {

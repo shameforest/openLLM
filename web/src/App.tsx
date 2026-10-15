@@ -2,20 +2,29 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { type AnswerSample, type Timing, elapsedLabel, fraction, remainingLabel } from './eta'
 import { type OcEvent, abort, connectEvents, createSession, health, sendPrompt } from './api'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
-import { AUTOPILOT_PREFIX, useSettings } from './settings'
+import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
 import { companionPost } from './companion'
 import { expandSkillCommand, useSkills } from './skills'
-import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks, taskSplit } from './claude'
+import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, hideOffloadMarkers, offloadTasks } from './claude'
+import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, usageSplit } from './usage'
+import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 
 // The OpenDante desktop app: a Claude-like chat over the local OpenCode server. The answer streams in live and drives the
 // two time readouts (elapsed + estimated remaining, eta.ts). When the server is not running it falls back to a
 // simulated answer so the window is never dead — the same render path is used either way.
+// The main window shows only final answers; the process (thinking, tool steps, Claude handoffs) lives in the
+// right-hand Gedankengang sidebar.
 
-interface Msg { role: 'user' | 'assistant'; text: string; reasoning?: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude' | 'stats'; pending?: boolean }
+interface Msg { role: 'user' | 'assistant'; text: string; reasoning?: string; tools?: ToolCall[]; error?: string | null; kind?: 'claude'; pending?: boolean }
 
-const fmtTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
+/** One assistant message → its process entry for the sidebar (thinking, tool steps, subtasks handed to Claude). */
+function toThought(key: string, prompt: string, m: Msg, live: boolean): Thought {
+  const split = splitThinking(m.text)
+  const thinking = [m.reasoning || '', split.thinking].filter((x) => x.trim()).join('\n')
+  return { key, prompt, thinking, tools: m.tools ?? [], offloads: offloadTasks(split.answer), live }
+}
 
 const KEY = 'openllm.samples'
 const DEMO = (
@@ -30,7 +39,8 @@ const loadHistory = (): AnswerSample[] => { try { return JSON.parse(localStorage
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
-  const [run, setRun] = useState<{ startedAt: number; turn: Turn } | null>(null)
+  const [run, setRun] = useState<{ startedAt: number; turn: Turn; sim?: boolean } | null>(null)
+  const [usage, setUsage] = useState<ChatUsage>(emptyUsage) // tokens in this chat: local vs Claude
   const [history, setHistory] = useState<AnswerSample[]>(loadHistory)
   const [online, setOnline] = useState<boolean | null>(null)
   const [, setTick] = useState(0)
@@ -67,7 +77,7 @@ export default function App() {
     if (prevWorkdir.current === modes.workdir) return
     prevWorkdir.current = modes.workdir
     sessionRef.current = null
-    setMessages([]); setRun(null)
+    setMessages([]); setRun(null); setUsage(emptyUsage())
   }, [modes.workdir])
 
   // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
@@ -103,6 +113,7 @@ export default function App() {
     if (!run || !run.turn.done) return
     const t = run.turn
     setMessages((m) => [...m, { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error }])
+    if (!run.sim) setUsage((u) => addLocal(u, t)) // the offline preview is not real work, so it is not counted
     if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t)
     if (!t.error && produced(t) > 0) {
       const next = [...history, { ms: Date.now() - run.startedAt, tokens: produced(t) }].slice(-20)
@@ -137,7 +148,7 @@ export default function App() {
     setInput('')
     setMessages((m) => [...m, { role: 'user', text: prompt }])
     const startedAt = Date.now()
-    setRun({ startedAt, turn: emptyTurn() })
+    setRun({ startedAt, turn: emptyTurn(), sim: !online })
     if (online) {
       try {
         if (!sessionRef.current) sessionRef.current = (await createSession('OpenDante', modes.workdir)).id
@@ -147,7 +158,7 @@ export default function App() {
         if (modes.offload) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
-        await sendPrompt(sessionRef.current, text, modes.workdir)
+        await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir)
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
       }
@@ -163,20 +174,15 @@ export default function App() {
     setMessages((m) => { const i = m.findIndex((x) => x.pending); if (i < 0) return [...m, final]; const c = [...m]; c[i] = final; return c })
 
   // After a local answer: (auto) send marked subtasks to Claude, and/or have Claude audit the whole result. Paid API.
-  // Tracks how many output tokens came from Claude vs the local model, to show the split afterwards.
+  // Each finished call adds its exact API token usage to the chat counter above the chat box right away.
   async function postProcessClaude(t: Turn) {
     const text = splitThinking(t.text).answer || t.text // review/offload the final answer, not the thinking
-    let offloads = 0
-    let claudeIn = 0
-    let claudeOut = 0
     if (modes.offload) {
       for (const task of offloadTasks(text)) {
-        offloads++
         setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '↗ Claude bearbeitet eine Teilaufgabe …', pending: true }])
         try {
           const r = await claudeOffload(task, modes.claudeModel)
-          claudeIn += r.usage?.input_tokens ?? 0
-          claudeOut += r.usage?.output_tokens ?? 0
+          setUsage((u) => addClaude(u, 'offload', r.usage))
           finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` })
         } catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
       }
@@ -185,20 +191,9 @@ export default function App() {
       setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '🔍 Claude prüft das Ergebnis …', pending: true }])
       try {
         const r = await claudeAudit(text, modes.claudeModel)
-        claudeIn += r.usage?.input_tokens ?? 0
-        claudeOut += r.usage?.output_tokens ?? 0
+        setUsage((u) => addClaude(u, 'audit', r.usage))
         finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` })
       } catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
-    }
-    // Show the split only when work was actually offloaded (that is what the user asked to see).
-    if (offloads > 0) {
-      const estimated = t.usage?.output == null || t.usage.output === 0
-      const localOut = estimated ? Math.max(1, Math.round(produced(t) / 4)) : t.usage!.output // ~4 chars ≈ 1 token
-      const { localPct, claudePct } = taskSplit(localOut, claudeOut)
-      setMessages((m) => [...m, { role: 'assistant', kind: 'stats', text:
-        `📊 Aufteilung dieser Aufgabe — Lokal ${localPct}% · Claude ${claudePct}%.  ` +
-        `Tokens: lokal ${estimated ? '~' : ''}${fmtTokens(localOut)}, Claude ${fmtTokens(claudeOut)} ` +
-        `(Eingabe ${fmtTokens(claudeIn)} / Ausgabe ${fmtTokens(claudeOut)}).` }])
     }
   }
 
@@ -225,6 +220,20 @@ export default function App() {
     }
   }
 
+  // The process of every answer, for the right-hand sidebar (the live turn last).
+  const thoughts: Thought[] = []
+  let lastPrompt = ''
+  messages.forEach((m, i) => {
+    if (m.role === 'user') lastPrompt = m.text
+    else if (!m.kind) thoughts.push(toThought(`m${i}`, lastPrompt, m, false))
+  })
+  if (run) thoughts.push(toThought('live', lastPrompt, { role: 'assistant', text: run.turn.text, reasoning: run.turn.reasoning, tools: run.turn.tools }, !run.turn.done))
+
+  // Counter shown above the chat box: committed turns plus the running one (live estimate until the server's count
+  // arrives). A finished run is still counted here until the commit effect moves it into `usage` in the same update.
+  const shownUsage = run && !run.sim ? addLocal(usage, run.turn) : usage
+  const showThinking = () => modes.set({ thinkingOpen: true })
+
   return (
     <div className="flex h-full">
       <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
@@ -233,7 +242,7 @@ export default function App() {
           <span className="text-[15px] font-semibold tracking-tight">OpenDante</span>
         </div>
         <button className="mx-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
-          onClick={() => { setMessages([]); setRun(null); sessionRef.current = null }}>+ Neuer Chat</button>
+          onClick={() => { setMessages([]); setRun(null); setUsage(emptyUsage()); sessionRef.current = null }}>+ Neuer Chat</button>
         <button className="mx-3 mb-3 mt-2 flex items-center justify-between rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
           onClick={() => setModiOpen(true)} data-testid="open-modi">
           <span>Modi</span>
@@ -263,7 +272,7 @@ export default function App() {
           <div className="mono mt-0.5 break-all text-ink2">{modes.workdir || 'Standard (Serverordner)'}</div>
         </div>
         <div className="flex items-center justify-between border-t border-line px-4 py-3 text-[12px] text-ink2">
-          <span><span className="mono">Qwen3.8 27B</span> · lokal</span>
+          <span className="min-w-0 truncate" title={modes.localModel}><span className="mono">{localModelName(modes.localModel)}</span> · lokal</span>
           <span className="inline-flex items-center gap-1.5" title={online ? 'verbunden' : 'Server nicht erreichbar'}>
             <span className={`size-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-ink3'}`} />
             {online === null ? '…' : online ? 'bereit' : 'offline'}
@@ -286,7 +295,8 @@ export default function App() {
               </div>
             )}
             {messages.map((m, i) => <Bubble key={i} m={m} />)}
-            {run && <Bubble m={{ role: 'assistant', text: run.turn.text, reasoning: run.turn.reasoning, tools: run.turn.tools, error: run.turn.error }} live={!run.turn.done} />}
+            {run && <Bubble m={{ role: 'assistant', text: run.turn.text, reasoning: run.turn.reasoning, tools: run.turn.tools, error: run.turn.error }} live={!run.turn.done}
+              onShowThinking={modes.thinkingOpen ? undefined : showThinking} />}
             <div ref={endRef} />
           </div>
         </div>
@@ -295,8 +305,11 @@ export default function App() {
           <div className="mx-auto max-w-[760px]">
             {(modes.offload || modes.audit) && (
               modes.apiKey.trim() ? (
-                <div className="mb-2 text-[12px] text-sky-400/80">
-                  Automatisch über Claude ({modes.claudeModel}): {modes.offload && 'unbedenkliche Teilaufgaben werden ausgelagert'}{modes.offload && modes.audit && ' · '}{modes.audit && 'das Ergebnis wird am Ende geprüft'}. Kostet API-Gebühren.
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <div className="min-w-0 flex-1 text-[12px] text-sky-400/80">
+                    Automatisch über Claude ({modes.claudeModel}): {modes.offload && 'unbedenkliche Teilaufgaben werden ausgelagert'}{modes.offload && modes.audit && ' · '}{modes.audit && 'das Ergebnis wird am Ende geprüft'}. Kostet API-Gebühren.
+                  </div>
+                  <UsageReadout u={shownUsage} />
                 </div>
               ) : (
                 <div className="mb-2 text-[12px] text-amber-400/90">
@@ -344,6 +357,7 @@ export default function App() {
           </div>
         </div>
       </main>
+      <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
@@ -351,51 +365,58 @@ export default function App() {
   )
 }
 
-function Bubble({ m, live = false }: { m: Msg; live?: boolean }) {
+// One chat entry. Assistant entries show ONLY the final answer: thinking, tool steps and the <<<CLAUDE handoff text
+// live in the Gedankengang sidebar.
+function Bubble({ m, live = false, onShowThinking }: { m: Msg; live?: boolean; onShowThinking?: () => void }) {
   if (m.role === 'user') {
     return <div className="self-end"><div className="max-w-[560px] rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>
   }
-  if (m.kind === 'stats') {
-    return <div className="self-start rounded-lg border border-line bg-panel px-3 py-1.5 text-[12px] text-ink2" data-testid="task-stats">{m.text}</div>
-  }
   const isClaude = m.kind === 'claude'
-  // Keep the chain-of-thought (reasoning events + inline <think>…</think>) out of the main answer.
   const split = splitThinking(m.text)
-  const thinking = [m.reasoning || '', split.thinking].filter((x) => x.trim()).join('\n').trim()
-  const answer = split.answer
+  const answer = isClaude ? m.text : hideOffloadMarkers(split.answer)
+  const hadProcess = !!(m.reasoning?.trim() || split.thinking.trim() || m.tools?.length)
   const waiting = live && !answer.trim() // still only thinking, no final answer yet
   return (
-    <div className="max-w-[640px] self-start">
+    <div className="max-w-[640px] self-start" data-testid={isClaude ? 'claude-answer' : 'answer'}>
       <div className={`mb-1 text-[12px] font-medium ${isClaude ? 'text-sky-400' : 'text-accent'}`}>{isClaude ? 'Claude (bezahlt)' : 'OpenDante'}</div>
-      {m.tools && m.tools.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {m.tools.map((t) => (
-            <span key={t.id} className="mono inline-flex items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1 text-[11px] text-ink2">
-              <span className={`size-1.5 rounded-full ${t.status === 'completed' ? 'bg-emerald-500' : t.status === 'error' ? 'bg-red-500' : 'bg-accent'}`} />
-              {t.tool}{t.title ? ` · ${t.title}` : ''}
-            </span>
-          ))}
+      {answer.trim() ? (
+        <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">{answer}{live && <Caret />}</div>
+      ) : waiting ? (
+        <div className="text-[14px] text-ink3">
+          <span className="italic">denkt nach…</span>
+          {onShowThinking && <button className="ml-2 text-[13px] hover:text-ink2 hover:underline" onClick={onShowThinking} data-testid="show-thinking">Gedankengang ansehen ›</button>}
         </div>
-      )}
-      {thinking && <ThinkingPanel text={thinking} live={waiting} />}
-      {answer.trim()
-        ? <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">{answer}{live && <Caret />}</div>
-        : waiting ? <div className="text-[14px] italic text-ink3">denkt nach…</div> : null}
+      ) : hadProcess ? (
+        <div className="text-[13px] italic text-ink3">Keine Textantwort — die ausgeführten Schritte stehen im Gedankengang.</div>
+      ) : null}
       {m.error && <div className="mt-2 text-[13px] text-red-400">Fehler: {m.error}</div>}
     </div>
   )
 }
 
-// Claude-style collapsible "thinking" block: the main answer stays clean; the chain-of-thought opens on click.
-function ThinkingPanel({ text, live }: { text: string; live: boolean }) {
-  const [open, setOpen] = useState(false)
+// Live token counter for this chat, shown next to the "Automatisch über Claude …" line: Claude's generated tokens
+// (exact, from the API) and the percent split of all generated tokens between the local model and Claude.
+function UsageReadout({ u }: { u: ChatUsage }) {
+  const split = usageSplit(u)
+  const approx = u.localEstimated ? '≈' : ''
+  const title = [
+    `Claude in diesem Chat: ${fmtExact(u.claudeOut)} Tokens erzeugt (Teilaufgaben ${fmtExact(u.offloadOut)} · Prüfung ${fmtExact(u.auditOut)}), ${fmtExact(u.claudeIn)} Tokens gelesen; ${u.offloads} Teilaufgabe(n) ausgelagert.`,
+    `Lokal erzeugt: ${approx}${fmtExact(u.local)} Tokens${u.localEstimated ? ' (teils geschätzt: der lokale Server hat nicht für jede Antwort eine Zahl gemeldet, dann gilt ~4 Zeichen = 1 Token)' : ' (exakt vom lokalen Server)'}.`,
+    'Prozent = Anteil an allen erzeugten Tokens (Antwort + Denken) in diesem Chat. „Neuer Chat“ setzt auf null.',
+  ].join('\n')
   return (
-    <div className="mb-2">
-      <button className="flex items-center gap-1.5 text-[12px] text-ink3 hover:text-ink2" onClick={() => setOpen((o) => !o)} data-testid="thinking-toggle">
-        <span className="inline-block w-3">{open ? '▾' : '▸'}</span>
-        <span>💭 Gedankengang{live ? ' (läuft…)' : ''}</span>
-      </button>
-      {open && <div className="mt-1 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg px-3 py-2 text-[12px] leading-relaxed text-ink3" data-testid="thinking-text">{text}</div>}
+    <div className="flex shrink-0 items-center gap-2.5 text-[12px] text-ink2" title={title} data-testid="usage">
+      <span><span className="mono text-sky-400" data-testid="usage-claude">{fmtExact(u.claudeOut)}</span> Claude-Tokens</span>
+      {split ? (
+        <>
+          <span className="flex h-1.5 w-14 overflow-hidden rounded-full bg-sky-400" aria-hidden>
+            <span className="h-full bg-accent transition-[width] duration-300" style={{ width: `${split.localPct}%` }} />
+          </span>
+          <span className="mono" data-testid="usage-split">Lokal {approx}{split.localPct} % · Claude {approx}{split.claudePct} %</span>
+        </>
+      ) : (
+        <span className="text-ink3">noch nichts gezählt</span>
+      )}
     </div>
   )
 }

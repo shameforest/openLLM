@@ -38,6 +38,13 @@ export function taskSplit(localOutTokens: number, claudeOutTokens: number): { lo
   return { localPct, claudePct: 100 - localPct }
 }
 
+/** The main window shows only the answer: replace each <<<CLAUDE … >>> handoff block with a short note (the task text
+ *  itself is shown in the Gedankengang sidebar). A block still streaming in (no >>> yet) is cut off too. */
+export function hideOffloadMarkers(text: string): string {
+  const note = '↗ Teilaufgabe an Claude übergeben (Ergebnis folgt unten).'
+  return text.replace(/<<<CLAUDE[\s\S]*?>>>/g, note).replace(/<<<CLAUDE[\s\S]*$/, note)
+}
+
 /** Pull out the <<<CLAUDE … >>> blocks the local model marked for offload. */
 export function offloadTasks(text: string): string[] {
   const out: string[] = []

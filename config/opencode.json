@@ -1,15 +1,25 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "_note": "OpenDante default OpenCode config. Installed to ~/.config/opencode/ by scripts/install.ps1. Verified 2026-10-14 against OpenCode v1.19.0 docs/source. Pin OpenCode 1.x: OpenCode 2 changes this schema. limit.context/output MUST be set (they default to 0); temperature must be true for agents to set it.",
-  "model": "ollama/qwen3.8:27b",
+  "_note": "OpenDante default OpenCode config. Installed to ~/.config/opencode/ by scripts/install.ps1. Verified 2026-10-14 against OpenCode v1.19.0 docs/source. Pin OpenCode 1.x: OpenCode 2 changes this schema. limit.context/output MUST be set (they default to 0); temperature must be true for agents to set it. Default model = the uncensored (abliterated) Qwen3.8 27B; the app's Einstellungen can switch per chat. Exact token counts arrive without extra options (measured 2026-10-15).",
+  "model": "ollama/orcarouter/Qwen3.8-27B-Uncensored:q4_K_M",
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Ollama (local)",
       "options": { "baseURL": "http://localhost:11434/v1" },
       "models": {
+        "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M": {
+          "name": "Qwen3.8 27B Uncensored (local)",
+          "temperature": true,
+          "limit": { "context": 65536, "output": 8192 }
+        },
         "qwen3.8:27b": {
           "name": "Qwen3.8 27B (local)",
+          "temperature": true,
+          "limit": { "context": 65536, "output": 8192 }
+        },
+        "huihui_ai/Qwen3.8-abliterated:27b-q4_K_M": {
+          "name": "Qwen3.8 27B Abliterated huihui (local)",
           "temperature": true,
           "limit": { "context": 65536, "output": 8192 }
         }

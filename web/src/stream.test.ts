@@ -40,6 +40,34 @@ describe('reduceEvent', () => {
     expect(t.usage).toEqual({ input: 100, output: 45 })
   })
 
+  it('routes a reasoning PART to the thinking even though its deltas say field "text" (measured OpenCode 1.19 + Ollama)', () => {
+    const t = run([
+      ev('message.part.updated', { part: { id: 'u', type: 'text', text: 'Was ist 2+2?' } }), // the user's prompt part
+      ev('message.part.updated', { part: { id: 'r', type: 'reasoning', text: '' } }),
+      ev('message.part.delta', { partID: 'r', field: 'text', delta: 'The user asks ' }),
+      ev('message.part.delta', { partID: 'r', field: 'text', delta: 'for 2+2.' }),
+      ev('message.part.updated', { part: { id: 'a', type: 'text', text: '' } }),
+      ev('message.part.delta', { partID: 'a', field: 'text', delta: '2+2 ist 4.' }),
+    ])
+    expect([t.text, t.reasoning]).toEqual(['2+2 ist 4.', 'The user asks for 2+2.'])
+  })
+
+  it('moves early deltas to the thinking once the part type arrives late', () => {
+    const t = run([
+      ev('message.part.delta', { partID: 'r', field: 'text', delta: 'denke' }),
+      ev('message.part.updated', { part: { id: 'r', type: 'reasoning' } }),
+    ])
+    expect([t.text, t.reasoning]).toEqual(['', 'denke'])
+  })
+
+  it('keeps text before and after a tool call as separate paragraphs', () => {
+    const t = run([
+      ev('message.part.delta', { partID: 'a1', field: 'text', delta: 'Ich lege die Datei an.' }),
+      ev('message.part.delta', { partID: 'a2', field: 'text', delta: 'Fertig.' }),
+    ])
+    expect(t.text).toBe('Ich lege die Datei an.\n\nFertig.')
+  })
+
   it('marks done on session.idle and on session.status idle', () => {
     expect(run([ev('session.idle')]).done).toBe(true)
     expect(run([ev('session.status', { status: { type: 'busy' } })]).done).toBe(false)
@@ -49,6 +77,11 @@ describe('reduceEvent', () => {
   it('session.error ends the turn and records the message', () => {
     const t = run([ev('session.error', { message: 'model not loaded' })])
     expect([t.done, t.error]).toEqual([true, 'model not loaded'])
+  })
+
+  it('reads the nested OpenCode error and hints at downloading a missing model', () => {
+    const t = run([ev('session.error', { error: { name: 'APIError', data: { message: "model 'x/y:q4' not found", statusCode: 404 } } })])
+    expect(t.error).toMatch(/^model 'x\/y:q4' not found — .*Modelle aktualisieren/)
   })
 
   it('a full turn: deltas + tool + idle', () => {
