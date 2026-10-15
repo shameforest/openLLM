@@ -42,6 +42,38 @@ export const sendPrompt = (sessionID: string, text: string, modelID: string, dir
 export const abort = (sessionID: string, dir?: string) =>
   call<boolean>(`/session/${sessionID}/abort${dirQuery(dir)}`, { method: 'POST' }).catch(() => false)
 
+// ---- requests the agent waits on (verified against the server's own OpenAPI doc, GET /doc, OpenCode 1.19.0) ----
+// Without an answer the agent waits forever — these were the main reason long tasks seemed stuck.
+
+/** The agent wants to do something its permission rules mark "ask" (a command, a file outside the project, a 3rd identical step). */
+export interface PermissionRequest {
+  id: string
+  sessionID: string
+  permission: string // bash | edit | external_directory | doom_loop | webfetch | task | …
+  patterns: string[]
+  metadata: Record<string, unknown>
+  always: string[]
+}
+export interface QuestionOption { label: string; description: string }
+export interface QuestionInfo { question: string; header: string; options: QuestionOption[]; multiple?: boolean; custom?: boolean }
+/** The agent asks the user a multiple-choice question (its "question" tool). */
+export interface QuestionRequest { id: string; sessionID: string; questions: QuestionInfo[] }
+export type SessionStatus = { type: 'idle' } | { type: 'busy' } | { type: 'retry'; attempt: number; message: string; next: number }
+
+export const listPermissions = (dir?: string) => call<PermissionRequest[]>(`/permission${dirQuery(dir)}`)
+export const listQuestions = (dir?: string) => call<QuestionRequest[]>(`/question${dirQuery(dir)}`)
+export const replyPermission = (id: string, reply: 'once' | 'always' | 'reject', dir?: string, message?: string) =>
+  call<boolean>(`/permission/${id}/reply${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify(message ? { reply, message } : { reply }) })
+export const replyQuestion = (id: string, answers: string[][], dir?: string) =>
+  call<boolean>(`/question/${id}/reply${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ answers }) })
+export const rejectQuestion = (id: string, dir?: string) =>
+  call<boolean>(`/question/${id}/reject${dirQuery(dir)}`, { method: 'POST' })
+/** busy / idle / retry (after a model error, with attempt and reason) for every session in the folder. */
+export const sessionStatus = (dir?: string) => call<Record<string, SessionStatus>>(`/session/status${dirQuery(dir)}`)
+/** All messages of a session with their parts — used to re-sync when live events were missed. */
+export const sessionMessages = (sessionID: string, dir?: string) =>
+  call<{ info: Record<string, any>; parts: Record<string, any>[] }[]>(`/session/${sessionID}/message${dirQuery(dir)}`)
+
 /** Subscribe to the server's event stream (SSE) for one working folder. Returns an unsubscribe function. */
 export function connectEvents(onEvent: (e: OcEvent) => void, onState?: (open: boolean) => void, dir?: string): () => void {
   if (typeof EventSource === 'undefined') return () => {}

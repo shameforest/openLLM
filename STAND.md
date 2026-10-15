@@ -8,9 +8,9 @@ fortschritt: 40
 fortschritt_text: Meilensteine M1–M5 (2 von 5 fertig)
 ---
 ## Stand
-M1 und M2 laufen auf dem Shadow-PC, das zensurfreie Modell erledigt Aufträge mit Werkzeugen. Die Fortschrittsanzeige arbeitet jetzt Schritt für Schritt mit einem realistischen Countdown.
+Der Grund fürs Feststecken ist gefunden und behoben: Der Agent wartete auf Freigaben, die die Oberfläche nicht beantworten konnte. Jetzt gibt es eine Freigabe-Karte und ein Auto-Erlauben, sodass auch große Aufträge durchlaufen.
 ## Gerade
-- [ ] (du) Neue Anzeige im Alltag testen
+- [ ] (du) Großen Auftrag im Alltag laufen lassen
 ## Als Nächstes
 - [ ] (du) Update hochladen und OpenDante neu starten
 - [ ] M3: Browser-Tests über Playwright einschalten
@@ -18,6 +18,7 @@ M1 und M2 laufen auf dem Shadow-PC, das zensurfreie Modell erledigt Aufträge mi
 ## Lernen
 - [ ] Was „abliteriert“ bei einem Modell bedeutet
 ## Erledigt
+- [x] 2026-10-15: Feststecken behoben: Freigabe-Karte + Auto-Erlauben
 - [x] 2026-10-15: Fortschritt Schritt für Schritt + echter Countdown
 - [x] 2026-10-15: Zensurfreies Modell mit Werkzeugen bewiesen
 - [x] 2026-10-15: Verlauf: Chats speichern und fortsetzen

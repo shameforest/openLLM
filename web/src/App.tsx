@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clock } from './eta'
 import { type Progress, type StepSample, type TaskSample, estimateStep, estimateTask, finishStep, reduceProgress, smoothEnd, startProgress } from './progress'
-import { type OcEvent, abort, connectEvents, createSession, health, sendPrompt } from './api'
+import { type OcEvent, type PermissionRequest, type QuestionRequest, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, sendPrompt } from './api'
+import { autoDecision } from './requests'
+import { RequestCard } from './RequestCard'
 import { type Turn, type ToolCall, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
 import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
 import { companionPost } from './companion'
@@ -88,6 +90,7 @@ export default function App() {
     chatRef.current = null
     setActiveChat(null)
     setMessages([]); setRun(null); setUsage(emptyUsage())
+    setPerms([]); setQuestions([]); autoReplied.current.clear()
   }
 
   // Changing the working folder (from the "+" menu or from Einstellungen) starts a fresh session in the new folder —
@@ -130,24 +133,64 @@ export default function App() {
     }
   }
 
-  // Feed one event into the active turn (used by both the real SSE stream and the fallback simulator).
+  // Requests the agent is waiting on: permission prompts (a command, a file outside the project, a loop it is stuck in)
+  // and multiple-choice questions. Without an answer the agent waits forever — this was the main reason long tasks
+  // seemed to freeze. They arrive as events AND are polled on (re)connect in case the window missed one.
+  const [perms, setPerms] = useState<PermissionRequest[]>([])
+  const [questions, setQuestions] = useState<QuestionRequest[]>([])
+  const autoReplied = useRef<Set<string>>(new Set()) // permission ids auto-answered, so we never answer twice
+
+  // Feed one event into the active turn, the progress, and the pending-request lists.
   const feed = useCallback((e: OcEvent) => {
     setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: reduceEvent(prev.turn, e), prog: reduceProgress(prev.prog, e, Date.now()) } : prev))
+    const p = (e.properties ?? {}) as Record<string, any>
+    switch (e.type) {
+      case 'permission.asked': setPerms((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p as PermissionRequest])); break
+      case 'permission.replied': { const id = p.requestID ?? p.data?.requestID; setPerms((xs) => xs.filter((x) => x.id !== id)); break }
+      case 'question.asked': setQuestions((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p as QuestionRequest])); break
+      case 'question.replied': case 'question.rejected': { const id = p.requestID ?? p.data?.requestID; setQuestions((xs) => xs.filter((x) => x.id !== id)); break }
+    }
   }, [])
 
-  // Connect to the local server; retry every 5 s while it is down (it shares the GPU with OpenDali).
+  // Connect to the local server; retry every 5 s while it is down (it shares the GPU with OpenDali). On every (re)connect,
+  // fetch any requests already waiting, so a reload or a short disconnect never leaves the agent stuck with no visible prompt.
   useEffect(() => {
     let disconnect = () => {}
     let alive = true
+    const syncRequests = () => {
+      void listPermissions(modes.workdir).then((xs) => { if (alive) setPerms(xs) }).catch(() => {})
+      void listQuestions(modes.workdir).then((xs) => { if (alive) setQuestions(xs) }).catch(() => {})
+    }
     const check = () => health().then((h) => {
       if (!alive) return
       setOnline(!!h)
-      if (h) disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir)
+      if (h) { disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir); syncRequests() }
     })
     check()
     const id = window.setInterval(() => { if (alive && online !== true) check() }, 5000)
-    return () => { alive = false; disconnect(); window.clearInterval(id); simRef.current() }
+    const reSync = window.setInterval(() => { if (alive && online === true) syncRequests() }, 8000) // safety net for a missed event
+    return () => { alive = false; disconnect(); window.clearInterval(id); window.clearInterval(reSync); simRef.current() }
   }, [feed, online, modes.workdir])
+
+  // Answer a permission request and drop it from the list.
+  const answerPerm = useCallback(async (id: string, reply: 'once' | 'always' | 'reject', message?: string) => {
+    setPerms((xs) => xs.filter((x) => x.id !== id))
+    await replyPermission(id, reply, modes.workdir, message).catch(() => {})
+  }, [modes.workdir])
+
+  // Auto-answer: while "Befehle automatisch erlauben" is on, allow safe requests at once and turn a loop around with a
+  // hint, so a long task keeps moving. Risky ones (push, delete) still wait for the user. Runs for event- and poll-found
+  // requests alike; `autoReplied` guards against answering the same id twice.
+  useEffect(() => {
+    if (!modes.autoAllow) return
+    for (const p of perms) {
+      if (autoReplied.current.has(p.id)) continue
+      const d = autoDecision(p)
+      if (!d) continue
+      autoReplied.current.add(p.id)
+      void answerPerm(p.id, d.reply, 'message' in d ? d.message : undefined)
+    }
+  }, [perms, modes.autoAllow, answerPerm])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, run])
 
@@ -404,7 +447,13 @@ export default function App() {
                 </div>
               )
             )}
-            {run && !run.turn.done && <Clock startedAt={run.startedAt} prog={run.prog} tools={run.turn.tools} steps={stepSamples} tasks={taskSamples} model={modes.localModel} />}
+            {(perms.length > 0 || questions.length > 0) && (
+              <RequestCard perms={perms} questions={questions} autoAllow={modes.autoAllow}
+                onPermission={(id, reply, msg) => void answerPerm(id, reply, msg)}
+                onQuestion={(id, answers) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void replyQuestion(id, answers, modes.workdir).catch(() => {}) }}
+                onReject={(id) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void rejectQuestion(id, modes.workdir).catch(() => {}) }} />
+            )}
+            {run && !run.turn.done && <Clock startedAt={run.startedAt} prog={run.prog} tools={run.turn.tools} steps={stepSamples} tasks={taskSamples} model={modes.localModel} waiting={perms.length > 0 || questions.length > 0} />}
             <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
               <div className="relative">
                 <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
@@ -512,7 +561,7 @@ function UsageReadout({ u }: { u: ChatUsage }) {
 // The live progress card above the chat box (re-rendered ~10×/s by the parent): which step the agent is on and what it
 // is doing, a countdown until that step is done, the speed, and an estimate for the whole task. The bar fills per step;
 // while a tool runs (its duration depends on the command) it shows a moving stripe instead.
-function Clock({ startedAt, prog, tools, steps, tasks, model }: { startedAt: number; prog: Progress; tools: ToolCall[]; steps: StepSample[]; tasks: TaskSample[]; model: string }) {
+function Clock({ startedAt, prog, tools, steps, tasks, model, waiting }: { startedAt: number; prog: Progress; tools: ToolCall[]; steps: StepSample[]; tasks: TaskSample[]; model: string; waiting: boolean }) {
   const now = Date.now()
   const est = estimateStep(prog, steps, now)
   const runningTool = tools.find((t) => t.status === 'running' || t.status === 'pending')
@@ -551,8 +600,10 @@ function Clock({ startedAt, prog, tools, steps, tasks, model }: { startedAt: num
   const stepLeft = Math.max(1000, end - now)
   const task = estimateTask(prog.step, stepLeft, tasks)
 
-  const indeterminate = !!runningTool || est.phase === 'between' || loading || overdue || long
-  const doing = runningTool
+  const indeterminate = waiting || !!runningTool || est.phase === 'between' || loading || overdue || long
+  const doing = waiting
+    ? 'wartet auf deine Antwort unten ↑'
+    : runningTool
     ? `führt aus: ${runningTool.tool}${runningTool.title ? ` · ${runningTool.title}` : ''}`
     : loading ? 'lädt das Modell in die Grafikkarte…'
     : est.phase === 'prefill' ? (prog.step === 1 ? 'liest den Auftrag ein…' : 'liest die Ergebnisse ein…')
@@ -560,7 +611,9 @@ function Clock({ startedAt, prog, tools, steps, tasks, model }: { startedAt: num
     : est.phase === 'writing' ? 'schreibt…'
     : 'bereitet den nächsten Schritt vor…'
 
-  const stepText = runningTool
+  const stepText = waiting
+    ? 'der Countdown pausiert, bis du geantwortet hast'
+    : runningTool
     ? `läuft seit ${clock(now - toolSeen.current[runningTool.id])} · Dauer hängt vom Befehl ab`
     : est.phase === 'between' ? 'gleich geht es weiter'
     : loading ? `seit ${clock(est.stepElapsedMs)} · einmalig nach einer Pause, dauert etwa 1 Min. · danach ~${clock(est.writeMs)}`

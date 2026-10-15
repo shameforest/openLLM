@@ -2,6 +2,11 @@ import { type Modes, useSettings } from './settings'
 
 const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
   {
+    key: 'autoAllow',
+    title: 'Befehle automatisch erlauben (empfohlen)',
+    desc: 'Lässt harmlose Schritte (Befehle, Dateien, Ordner) ohne Nachfrage laufen, damit große Aufträge nicht nach dem ersten Schritt stehen bleiben. Hochladen (git push) und Löschen fragen immer nach. Dreht sich der Agent im Kreis, wird er automatisch umgelenkt. Aus: jeder Schritt fragt einzeln.',
+  },
+  {
     key: 'autopilot',
     title: 'Autopilot – in Etappen arbeiten',
     desc: 'Für große Aufträge: OpenDante arbeitet in kleinen Schritten mit einem Gedächtnis-Dokument (FORTSCHRITT.md), erinnert sich selbst an den Ursprungsauftrag und den Stand und macht automatisch weiter — gegen Abschweifen und Vergessen.',

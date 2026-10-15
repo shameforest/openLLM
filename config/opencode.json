@@ -33,13 +33,17 @@
     "edit": "allow",
     "webfetch": "allow",
     "websearch": "allow",
+    "task": "deny",
+    "_note_task": "A local 27B model's subagents give no benefit on one GPU and reliably failed with Ollama 'no user query found in messages', blocking the whole session. The model does the work in the main session (batch-autopilot) instead.",
     "bash": {
       "*": "ask",
-      "ls*": "allow", "dir*": "allow", "cat *": "allow", "type *": "allow", "grep *": "allow", "rg *": "allow", "find *": "allow", "echo *": "allow",
-      "git status": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git add*": "allow", "git commit*": "allow", "git branch*": "allow", "git checkout -b*": "allow",
-      "npm *": "allow", "npx *": "allow", "node *": "allow", "pnpm *": "allow", "python *": "allow", "py *": "allow", "pytest*": "allow", "pip *": "allow", "uv *": "allow", "cargo *": "allow", "go *": "allow",
-      "git push*": "ask", "git reset --hard*": "ask", "git clean*": "ask",
-      "rm *": "deny", "del *": "deny", "rmdir *": "deny", "Remove-Item*": "deny", "format *": "deny", "mkfs*": "deny"
+      "ls*": "allow", "dir*": "allow", "cat *": "allow", "type *": "allow", "grep *": "allow", "rg *": "allow", "find *": "allow", "echo *": "allow", "tree*": "allow", "pwd*": "allow", "head *": "allow", "tail *": "allow", "which *": "allow", "where *": "allow",
+      "Get-ChildItem*": "allow", "Get-Content*": "allow", "Test-Path*": "allow", "Select-String*": "allow", "Select-Object*": "allow", "Where-Object*": "allow", "ForEach-Object*": "allow", "Measure-Object*": "allow", "Sort-Object*": "allow", "Get-Command*": "allow", "Get-Location*": "allow", "Resolve-Path*": "allow", "Out-String*": "allow", "Format-Table*": "allow", "Format-List*": "allow", "Write-Output*": "allow", "Write-Host*": "allow",
+      "mkdir *": "allow", "New-Item*": "allow", "md *": "allow",
+      "git status": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git add*": "allow", "git commit*": "allow", "git branch*": "allow", "git checkout -b*": "allow", "git stash*": "allow", "git restore --staged*": "allow",
+      "npm *": "allow", "npx *": "allow", "node *": "allow", "pnpm *": "allow", "yarn *": "allow", "python *": "allow", "python3 *": "allow", "py *": "allow", "pytest*": "allow", "pip *": "allow", "uv *": "allow", "cargo *": "allow", "go *": "allow", "dotnet *": "allow", "ollama list*": "allow", "ollama show*": "allow",
+      "git push*": "ask", "git reset --hard*": "ask", "git clean*": "ask", "git checkout -- *": "ask", "git restore *": "ask",
+      "rm *": "deny", "del *": "deny", "rmdir *": "deny", "rd *": "deny", "Remove-Item*": "deny", "Clear-Content*": "deny", "format *": "deny", "mkfs*": "deny", "Stop-Computer*": "deny", "Restart-Computer*": "deny", "shutdown*": "deny"
     }
   },
   "agent": {

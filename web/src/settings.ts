@@ -6,6 +6,7 @@ export interface Modes {
   autopilot: boolean
   offload: boolean
   audit: boolean
+  autoAllow: boolean // answer safe permission prompts automatically, so long tasks don't stall waiting for a click
 }
 
 /** Claude models for the paid API offload — IDs from the claude-api reference (Opus 5.5 is the strongest/default). */
@@ -42,6 +43,7 @@ export const useSettings = create<State>()(
       autopilot: false,
       offload: false,
       audit: false,
+      autoAllow: true, // on by default: without it the first command needing permission freezes the whole task
       globalInstructions: '',
       apiKey: '',
       claudeModel: 'claude-opus-5-5',
