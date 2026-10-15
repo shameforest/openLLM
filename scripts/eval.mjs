@@ -227,7 +227,15 @@ async function main() {
   const history = path.join(RESULTS, 'verlauf.jsonl')
   const before = fs.existsSync(history) ? fs.readFileSync(history, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
   fs.appendFileSync(history, JSON.stringify(summary) + '\n')
-  if (!args.keep) fs.rmSync(base, { recursive: true, force: true })
+  // OpenCode may still hold a file in the last folder open (measured: EPERM right after the run); a leftover folder
+  // must not lose the result, so cleanup is retried briefly and otherwise only reported.
+  if (!args.keep) {
+    let cleaned = false
+    for (let i = 0; i < 5 && !cleaned; i++) {
+      try { fs.rmSync(base, { recursive: true, force: true }); cleaned = true } catch { await sleep(2000) }
+    }
+    if (!cleaned) console.log(`(Arbeitsordner ${base} ließ sich noch nicht löschen; später von Hand entfernen.)`)
+  }
 
   console.log(`\nGelöst: ${summary.passed} von ${summary.total} · ${fmtMin(summary.seconds)} min · Bericht: ${file}.md`)
   if (before.length) {

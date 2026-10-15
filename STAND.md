@@ -4,20 +4,28 @@ art: Lokaler KI-Programmierassistent · OpenCode + Ollama + Web
 farbe: #9B7BFF
 reihenfolge: 3
 meilenstein: M3 · Autonomie und Sicherheit
-fortschritt: 40
-fortschritt_text: Meilensteine M1–M5 (2 von 5 fertig)
+fortschritt: 55
+fortschritt_text: Meilensteine M1–M5 (2 fertig, M3 + M4 teilweise)
 ---
 ## Stand
-Chats lassen sich jetzt umbenennen und löschen. Der Ordner-Dialog öffnet wieder zuverlässig (jetzt im App-Fenster) und man kann mehrere Ordner auf einmal wählen und einzeln entfernen.
+Alle 23 Verbesserer-Vorschläge sind umgesetzt: Rückgängig mit Vorher/Nachher-Ansicht, Plan-Modus, Aufgabenliste, Gedächtnis-Anzeige, Schalter „Denken aus“, Claude-Tageslimit. Der neue Testlauf löst 7 von 7 Aufgaben in 19 Minuten.
 ## Gerade
-- [ ] (du) Update hochladen und OpenDante neu starten
+- [ ] (du) Update hochladen (push) und `install.ps1 -SkipModel` ausführen, dann OpenDante neu starten
 ## Als Nächstes
-- [ ] (du) Ordnerwahl + Umbenennen/Löschen im Alltag testen
+- [ ] (du) Entscheiden: harmlose Python-Einzeiler automatisch erlauben? (OD-24)
+- [ ] (du) Entscheiden: Sprachserver für Fehlerprüfung herunterladen lassen? (OD-20)
 - [ ] M3: Browser-Tests über Playwright einschalten
 - [ ] Datei anhängen / Referenzen (im „+"-Menü noch „bald")
 ## Lernen
-- [ ] Was „abliteriert“ bei einem Modell bedeutet
+- [ ] Was Git-Schnappschüsse sind und warum „Rückgängig“ sie braucht
 ## Erledigt
+- [x] 2026-10-15: Testlauf mit 7 festen Aufgaben (7 von 7 gelöst)
+- [x] 2026-10-15: Rückgängig + Vorher/Nachher-Ansicht
+- [x] 2026-10-15: Plan-Modus „Erst planen, dann umsetzen“
+- [x] 2026-10-15: Aufgabenliste + Gedächtnis-Anzeige
+- [x] 2026-10-15: Schalter „Denken aus“, Modell bleibt warm
+- [x] 2026-10-15: Claude: Sonnet als Standard + Tageslimit
+- [x] 2026-10-15: Konfiguration repariert, Prompt 46 % kürzer
 - [x] 2026-10-15: Chats umbenennen + löschen
 - [x] 2026-10-15: Ordner-Browser in der App, Mehrfachauswahl
 - [x] 2026-10-15: Feststecken behoben: Freigabe-Karte + Auto-Erlauben
@@ -29,9 +37,7 @@ Chats lassen sich jetzt umbenennen und löschen. Der Ordner-Dialog öffnet wiede
 - [x] 2026-10-15: Fehler behoben: Denken landete in der Antwort
 - [x] 2026-10-15: Gedankengang in rechter, zuklappbarer Leiste
 - [x] 2026-10-15: Live-Tokenzähler lokal/Claude über dem Chat
-- [x] 2026-10-15: Bildstudio-Prompt für OpenDante umgeschrieben
 - [x] 2026-10-14: Claude-Auslagerung und -Prüfung automatisch
 - [x] 2026-10-14: GitHub-Projekte klonen, committen, pushen
 - [x] 2026-10-14: Skills hochladen und per /name aufrufen
-- [x] 2026-10-14: Arbeitsordner frei wählbar
 - [x] 2026-10-14: M1 + M2 auf dem Shadow-PC bewiesen
