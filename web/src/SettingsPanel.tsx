@@ -5,6 +5,7 @@ import { useSkills } from './skills'
 import { cloneRepo, gitAction, useProjects } from './projects'
 import { useChats } from './chats'
 import { UsageOverview } from './UsageOverview'
+import { useEscape } from './useEscape'
 
 // Pull the skill name from the SKILL.md front-matter (`name:` in the --- head); fall back to the file name.
 export function skillNameFrom(content: string, fileName: string): string {
@@ -35,6 +36,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
     void skills.refresh(); void projects.refresh(); void chats.refresh()
     fetch(COMPANION + '/claude/usage').then((r) => r.json()).then((u) => setSpentToday(typeof u.usd === 'number' ? u.usd : null)).catch(() => setSpentToday(null))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEscape(open, onClose)
 
   if (!open) return null
 

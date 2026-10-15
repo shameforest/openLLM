@@ -1,10 +1,11 @@
 import { type Modes, useSettings } from './settings'
+import { useEscape } from './useEscape'
 
 const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
   {
     key: 'autoAllow',
     title: 'Befehle automatisch erlauben (empfohlen)',
-    desc: 'Lässt harmlose Schritte im Arbeitsordner ohne Nachfrage laufen, damit große Aufträge nicht nach dem ersten Schritt stehen bleiben. Immer nachgefragt wird bei: Hochladen (git push), Löschen, Zugriff außerhalb des Arbeitsordners, „Herunterladen und Ausführen“ und Programm-Einzeilern. Dreht sich der Agent im Kreis, wird er automatisch umgelenkt. Aus: jeder Schritt fragt einzeln.',
+    desc: 'Lässt harmlose Schritte im Arbeitsordner ohne Nachfrage laufen, damit große Aufträge nicht nach dem ersten Schritt stehen bleiben. Immer nachgefragt wird bei: Hochladen (git push), Löschen, Zugriff außerhalb des Arbeitsordners, „Herunterladen und Ausführen“ und Programm-Einzeilern, die schreiben oder löschen (kurze Prüfungen, die nur rechnen und ausgeben, laufen von selbst). Dreht sich der Agent im Kreis, wird er automatisch umgelenkt. Aus: jeder Schritt fragt einzeln.',
   },
   {
     key: 'autopilot',
@@ -25,6 +26,7 @@ const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
 
 export function Modi({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useSettings()
+  useEscape(open, onClose)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>

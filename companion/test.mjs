@@ -94,6 +94,23 @@ try {
   const bad = await fetch(base + '/fs?path=' + encodeURIComponent(path.join(data, 'gibt-es-nicht'))).then((r) => r.json())
   ok(bad.error && /lesbar/.test(bad.error), 'GET /fs on a missing folder errors cleanly')
 
+  // File picker (Datei anhängen): GET /fs?files=1 adds the files of the folder, without it nothing changes
+  const fdir = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-files-'))
+  await fs.mkdir(path.join(fdir, 'unterordner'))
+  await fs.writeFile(path.join(fdir, 'zweite.txt'), 'x'.repeat(2048))
+  await fs.writeFile(path.join(fdir, 'Erste notiz.txt'), 'hallo')
+  await fs.writeFile(path.join(fdir, '$Systemrauschen.txt'), 'nein')
+  const withFiles = await fetch(base + '/fs?path=' + encodeURIComponent(fdir) + '&files=1').then((r) => r.json())
+  ok(Array.isArray(withFiles.files) && withFiles.files.length === 2, 'GET /fs?files=1 lists the regular files (no folders, no $-system noise)')
+  ok(withFiles.files[0].name === 'Erste notiz.txt' && withFiles.files[0].size === 5 && withFiles.files[0].path === path.join(fdir, 'Erste notiz.txt'), 'a listed file has its name, full path and size in bytes')
+  ok(withFiles.files[1].name === 'zweite.txt' && withFiles.files[1].size === 2048, 'files are sorted by name')
+  ok(withFiles.dirs.length === 1 && withFiles.dirs[0].name === 'unterordner', 'GET /fs?files=1 still lists the sub-folders')
+  const noFiles = await fetch(base + '/fs?path=' + encodeURIComponent(fdir)).then((r) => r.json())
+  ok(!('files' in noFiles) && noFiles.dirs.length === 1, 'without files=1 the answer has no files key (folder picker unchanged)')
+  const rootsWithFiles = await fetch(base + '/fs?files=1').then((r) => r.json())
+  ok(Array.isArray(rootsWithFiles.files) && rootsWithFiles.files.length === 0 && rootsWithFiles.dirs.length > 0, 'GET /fs?files=1 at the roots has an empty files list')
+  await fs.rm(fdir, { recursive: true, force: true })
+
   const badModel = await post('/update/models', { model: 'qwen; rm -rf /' })
   ok(badModel.error && /Modellname/.test(badModel.error), 'model update rejects a malformed model name (nothing is run)')
 
@@ -109,6 +126,19 @@ try {
   const noRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-norepo-'))
   const badGit = await post('/git', { path: noRepo, action: 'status' })
   ok(badGit.error && /Git-Projektordner/.test(badGit.error), 'git action rejects a non-repo folder')
+
+  // "Sicherung einschalten" (OD-26): a .gitignore keeps generated folders out of OpenCode's snapshots
+  const prep = await post('/git/prepare', { path: noRepo })
+  const gi = await fs.readFile(path.join(noRepo, '.gitignore'), 'utf8').catch(() => '')
+  ok(prep.created === true && gi.includes('node_modules/') && gi.includes('.venv/'), 'prepare writes a default .gitignore into a folder without one')
+  await fs.writeFile(path.join(noRepo, '.gitignore'), 'eigene-regel/\n')
+  const prep2 = await post('/git/prepare', { path: noRepo })
+  ok(prep2.created === false && (await fs.readFile(path.join(noRepo, '.gitignore'), 'utf8')) === 'eigene-regel/\n', 'an existing .gitignore is left alone')
+  const prepHome = await post('/git/prepare', { path: os.homedir() })
+  ok(prepHome.error && /nicht ein/.test(prepHome.error), 'the home folder is refused (too big for snapshots)')
+  const prepRoot = await post('/git/prepare', { path: path.parse(os.homedir()).root })
+  ok(prepRoot.error && /nicht ein/.test(prepRoot.error), 'a drive root is refused')
+  await fs.rm(noRepo, { recursive: true, force: true })
   await fs.rm(repo, { recursive: true, force: true })
   await fs.rm(noRepo, { recursive: true, force: true })
 

@@ -1,0 +1,9 @@
+{
+  "id": "bugjagd",
+  "title": "Fehlerjagd im Shop",
+  "prompt": "Im aktuellen Ordner liegt ein kleiner Online-Shop aus fünf Python-Dateien (`models.py`, `preise.py`, `rabatte.py`, `lager.py`, `bestellung.py`) und die Testdatei `test_shop.py`. Kunden melden zwei Probleme: Die Beträge auf den Rechnungen stimmen nicht, und manche Artikel werden öfter verkauft, als im Lager vorhanden sind. Außerdem schlägt `python test_shop.py` derzeit fehl.\n\nFinde die Ursachen im Code der Anwendung und behebe sie. Es gibt mehrere voneinander unabhängige Fehler, und die vorhandenen Tests decken nicht alle davon ab. Prüfe also auch Fälle, die dort nicht vorkommen. Die Regeln, die in den Docstrings der Module stehen (Rundung, Rabatte, Reservierung, Ablauf der Rechnung), gelten als Spezifikation. Alle Geldbeträge bleiben `Decimal`.\n\nBedingungen: Ändere `test_shop.py` nicht. Namen, Signaturen und Rückgabeformate der vorhandenen Klassen und Funktionen bleiben unverändert. Am Ende muss `python test_shop.py` ohne Fehler durchlaufen. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 25,
+  "kind": "fix",
+  "level": "schwer"
+}

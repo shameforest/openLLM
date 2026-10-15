@@ -4,6 +4,8 @@ import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionReque
 import { LOOP_HINT, autoDecision, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { keepWarm } from './ollama'
+import { companionPost } from './companion'
+import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
@@ -11,6 +13,8 @@ import { type Turn, emptyTurn, produced, reduceEvent, splitThinking } from './st
 import { AUTOPILOT_PREFIX, useSettings } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
+import { FilePicker } from './FilePicker'
+import { type Attachment, IMAGE_HINT, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
 import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
@@ -50,6 +54,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [filePickerOpen, setFilePickerOpen] = useState(false)
+  const [attachments, setAttachments] = useState<Attachment[]>([]) // files chosen for the next message ("Datei anhängen")
   const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -149,9 +155,14 @@ export default function App() {
   }, [online, modes.workdir])
   async function enableGit() {
     try {
+      // First a .gitignore (and a refusal for the home folder or a drive root): without it OpenCode would snapshot
+      // node_modules & co. before every step (measured 86 s instead of 5 s, OD-26). No init if this step fails.
+      const prep = await companionPost<{ created: boolean }>('/git/prepare', { path: effectiveDir })
       const p = await gitInit(modes.workdir)
       setHasGit(p.vcs === 'git')
-      setCtxNote(p.vcs === 'git' ? 'Sicherung ist an: ab dem nächsten Auftrag siehst du geänderte Dateien und kannst sie rückgängig machen.' : '')
+      setCtxNote(p.vcs === 'git'
+        ? `Sicherung ist an: ab dem nächsten Auftrag siehst du geänderte Dateien und kannst sie rückgängig machen.${prep.created ? ' Hilfsordner wie node_modules bleiben außen vor (.gitignore angelegt).' : ''}`
+        : '')
     } catch (e) { setCtxNote(`Sicherung ließ sich nicht einschalten: ${String((e as Error).message || e)}`) }
   }
   const skipGit = () => { const s = [...gitSkip, effectiveDir]; setGitSkip(s); saveList(GIT_SKIP_KEY, s) }
@@ -243,7 +254,9 @@ export default function App() {
         const um = t.userMsg
         void Promise.all(t.userMsgs.map((id) => sessionDiff(sid, id, modes.workdir).catch(() => [] as FileDiff[]))).then((ds) => {
           // Plan mode's own notes (.opencode/plans/*.md in a git folder) are not work the user asked for.
-          const files = ds.flat().filter((f) => ((f.additions || 0) + (f.deletions || 0) > 0 || f.status) && !/(^|[\\/])\.opencode[\\/]plans[\\/]/.test(f.file ?? ''))
+          const files = ds.flat()
+            .map((f) => (f.patch ? { ...f, ...cleanPatch(f.patch) } : f)) // line-ending-only changes do not count (OD-31)
+            .filter((f) => ((f.additions || 0) + (f.deletions || 0) > 0 || f.status === 'added' || f.status === 'deleted') && !/(^|[\\/])\.opencode[\\/]plans[\\/]/.test(f.file ?? ''))
           setMessages((m) => m.map((x) => (x.role === 'assistant' && x.userMsg === um ? { ...x, changes: files } : x)))
         })
       }
@@ -284,14 +297,16 @@ export default function App() {
   }
 
   /** Send the typed request — or `override` (e.g. "Plan umsetzen", a loop redirect). Plan mode sends it to OpenCode's
-   *  read-only "plan" agent; everything else to "build". Undone turns are dropped here, as OpenCode drops them too. */
+   *  read-only "plan" agent; everything else to "build". Undone turns are dropped here, as OpenCode drops them too.
+   *  The attached files (chips above the input) go along with a typed request only, never with an `override`. */
   async function send(override?: { text: string; agent: 'plan' | 'build' }) {
     const prompt = (override?.text ?? input).trim()
     if (!prompt || running) return
     const agent = override?.agent ?? (modes.planFirst ? 'plan' : 'build')
-    if (!override) setInput('')
+    const files = override ? [] : attachments
+    if (!override) { setInput(''); setAttachments([]) }
     setCtxNote('')
-    setMessages((m) => [...m.filter((x) => !x.reverted), { role: 'user', text: prompt }])
+    setMessages((m) => [...m.filter((x) => !x.reverted), { role: 'user', text: withAttachmentLines(prompt, files) }])
     const startedAt = Date.now()
     setRun({ startedAt, turn: emptyTurn(), prog: startProgress(startedAt), sim: !online, agent })
     if (online) {
@@ -311,12 +326,12 @@ export default function App() {
         if (!sessionRef.current) sessionRef.current = (await createSession(title, modes.workdir)).id
         const variant = modes.thinkOff ? 'ohne-denken' : undefined // OD-16
         try {
-          await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir, agent, variant)
+          await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir, agent, variant, files)
         } catch {
           // A reopened chat whose OpenCode session no longer exists: continue in a fresh session (the window keeps
           // the old messages, the model starts without them).
           sessionRef.current = (await createSession(title, modes.workdir)).id
-          await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir, agent, variant)
+          await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir, agent, variant, files)
         }
       } catch {
         feed({ id: 'err', type: 'session.error', properties: { message: 'Konnte den lokalen Server nicht erreichen.' } })
@@ -417,6 +432,8 @@ export default function App() {
   }
   // Switch to a saved folder.
   const switchFolder = (path: string) => { modes.set({ workdir: path }); setPlusOpen(false) }
+  // Files chosen in the in-app file browser wait as chips above the input until the next message is sent.
+  const addAttachments = (files: Attachment[]) => setAttachments((a) => mergeAttachments(a, files))
 
   // The process of every answer, for the right-hand sidebar (the live turn last).
   const thoughts: Thought[] = []
@@ -515,11 +532,25 @@ export default function App() {
               </div>
             )}
             {run && !run.turn.done && <Clock startedAt={run.startedAt} prog={run.prog} tools={run.turn.tools} steps={stepSamples} tasks={taskSamples} model={modes.localModel} waiting={perms.length > 0 || questions.length > 0} retry={run.turn.retry} />}
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5" data-testid="attachment-chips">
+                {attachments.map((a) => (
+                  <span key={a.path} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-lg border border-line bg-panel py-1 pl-2.5 pr-1 text-[12px] text-ink2" data-testid="attachment-chip" title={a.path}>
+                    <span aria-hidden>📎</span>
+                    <span className="truncate">{a.name}</span>
+                    {isImageName(a.name) && <span className="shrink-0 cursor-help text-ink3" title={IMAGE_HINT} data-testid="attachment-image-hint">🖼 Bild</span>}
+                    <button className="shrink-0 rounded-md px-1.5 py-0.5 text-ink3 hover:bg-line hover:text-ink2" title="Entfernen" aria-label={`${a.name} entfernen`}
+                      onClick={() => setAttachments((xs) => xs.filter((x) => x.path !== a.path))} data-testid="attachment-remove">✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
               <div className="relative">
                 <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
                 {plusOpen && (
                   <div className="absolute bottom-11 left-0 z-10 w-80 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setFilePickerOpen(true); setPlusOpen(false) }} data-testid="attach-file">📎 Datei anhängen…</button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setPickerOpen(true); setPlusOpen(false) }} data-testid="pick-folder">📁 Ordner hinzufügen…</button>
                     {modes.folders.length > 0 && (
                       <div className="mt-1 border-t border-line pt-1">
@@ -582,6 +613,7 @@ export default function App() {
         </div>
       </main>
       <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFolders} />
+      <FilePicker open={filePickerOpen} onClose={() => setFilePickerOpen(false)} onPick={addAttachments} />
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />

@@ -3,6 +3,8 @@
 // agent reads/edits/runs in) is chosen PER REQUEST via the `directory` query param — one server serves many folders,
 // no restart. Empty directory = the server's own cwd (where the launcher started it).
 
+import { type Attachment, filePart } from './attachments'
+
 export const DEFAULT_BASE = 'http://127.0.0.1:4096'
 
 /** `?directory=…` query suffix when a working folder is set, else empty. */
@@ -33,11 +35,12 @@ export const createSession = (title: string, dir?: string) =>
   call<{ id: string }>(`/session${dirQuery(dir)}`, { method: 'POST', body: JSON.stringify({ title }) })
 
 /** Send a user prompt to the given local (Ollama) model. Returns at once (204); the answer arrives as events.
- *  `variant` picks a model variant from config/opencode.json, e.g. "ohne-denken" (sent to Ollama as reasoning_effort none). */
-export const sendPrompt = (sessionID: string, text: string, modelID: string, dir?: string, agent = 'build', variant?: string) =>
+ *  `variant` picks a model variant from config/opencode.json, e.g. "ohne-denken" (sent to Ollama as reasoning_effort none).
+ *  `files` are attached as file parts (file:// urls): OpenCode reads them from disk and hands the content to the model. */
+export const sendPrompt = (sessionID: string, text: string, modelID: string, dir?: string, agent = 'build', variant?: string, files: Attachment[] = []) =>
   call<void>(`/session/${sessionID}/prompt_async${dirQuery(dir)}`, {
     method: 'POST',
-    body: JSON.stringify({ agent, model: { providerID: 'ollama', modelID }, parts: [{ type: 'text', text }], ...(variant ? { variant } : {}) }),
+    body: JSON.stringify({ agent, model: { providerID: 'ollama', modelID }, parts: [{ type: 'text', text }, ...files.map(filePart)], ...(variant ? { variant } : {}) }),
   })
 
 export const abort = (sessionID: string, dir?: string) =>

@@ -7,6 +7,7 @@
 //   node scripts/eval.mjs                                   all tasks, default model, server 127.0.0.1:4096
 //   node scripts/eval.mjs --tasks roemisch,umbenennen --repeat 2 --variant wenig-denken --label "think low"
 //   node scripts/eval.mjs --base http://127.0.0.1:4196      a separate test server
+//   node scripts/eval.mjs --level schwer --repeat 2         only the hard tasks, each twice (one run varies a lot)
 //
 // Each task runs in a fresh folder under ~/.opendante/eval/ (outside any git repo, made a git repo itself so it
 // behaves like a real project with undo). Permission prompts are answered with the same rules as the app's
@@ -26,7 +27,7 @@ const models = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'models.json
 
 const args = parseArgs(process.argv.slice(2))
 if (args.help) {
-  console.log('node scripts/eval.mjs [--base URL] [--model ID] [--variant NAME] [--tasks a,b] [--repeat N] [--label TEXT] [--keep]')
+  console.log('node scripts/eval.mjs [--base URL] [--model ID] [--variant NAME] [--tasks a,b] [--level leicht|schwer] [--repeat N] [--label TEXT] [--keep]')
   process.exit(0)
 }
 const BASE = (args.base || 'http://127.0.0.1:4096').replace(/\/$/, '')
@@ -85,10 +86,12 @@ async function preflight() {
 
 function loadTasks() {
   const only = typeof args.tasks === 'string' ? args.tasks.split(',').map((s) => s.trim()) : null
+  const level = typeof args.level === 'string' ? args.level : null // "leicht" (the first 7) or "schwer"
   return fs.readdirSync(TASKS, { withFileTypes: true })
     .filter((d) => d.isDirectory() && fs.existsSync(path.join(TASKS, d.name, 'task.json')))
     .map((d) => ({ dir: path.join(TASKS, d.name), ...JSON.parse(fs.readFileSync(path.join(TASKS, d.name, 'task.json'), 'utf8')) }))
     .filter((t) => !only || only.includes(t.id))
+    .filter((t) => !level || (t.level || 'leicht') === level)
     .sort((a, b) => a.id.localeCompare(b.id))
 }
 
@@ -117,7 +120,7 @@ async function runTask(task, workdir, safeDirs) {
       seen.add(p.id)
       const d = autoDecision(p, workdir, safeDirs)
       if (d?.reply === 'once') autoAllowed++
-      else { asks++; asked.push(`${p.permission}: ${String(p.metadata?.command ?? p.patterns?.join(' ') ?? '').split('\n')[0].slice(0, 80)}`) }
+      else { asks++; asked.push(`${p.permission}: ${String(p.metadata?.command ?? p.patterns?.join(' ') ?? '').replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 300)}`) }
       const reply = d ?? { reply: 'reject', message: ANSWER_REFUSED }
       await api(`/permission/${p.id}/reply${q(workdir)}`, { method: 'POST', body: JSON.stringify(reply) }).catch(() => {})
     }
@@ -160,6 +163,8 @@ async function runTask(task, workdir, safeDirs) {
   const c = spawnSync(cmd, checkArgs, { cwd: workdir, encoding: 'utf8', timeout: 60_000, windowsHide: true })
   const output = `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split(/\r?\n/).filter(Boolean)
   const passed = c.status === 0
+  // Test sessions would otherwise pile up in OpenCode's session database, also the user's (OD-32).
+  if (!args.keep) await api(`/session/${session.id}${q(workdir)}`, { method: 'DELETE' }).catch(() => {})
   return {
     task: task.id, kind: task.kind, passed, timedOut, seconds: Math.round(seconds), steps, tools, toolErrors,
     tokensRead: read, tokensWritten: written, asks, asked, autoAllowed, questions, error,
@@ -190,7 +195,7 @@ function report(stamp, runs) {
   ]
   const asked = runs.flatMap((r) => (r.asked ?? []).map((a) => `- ${r.task}: \`${a.replace(/`/g, "'")}\``))
   if (asked.length) lines.push('**Hätte nachgefragt** (im Testlauf abgelehnt, der Agent musste einen anderen Weg finden):', '', ...asked, '')
-  return { md: lines.join('\n'), summary: { stamp, model: MODEL, variant: VARIANT, label: LABEL, passed, total, seconds: secs,
+  return { md: lines.join('\n'), summary: { stamp, model: MODEL, variant: VARIANT, label: LABEL, level: args.level || 'alle', repeat: REPEAT, passed, total, seconds: secs,
     tokensWritten: runs.reduce((s, r) => s + r.tokensWritten, 0), asks: runs.reduce((s, r) => s + r.asks, 0) } }
 }
 

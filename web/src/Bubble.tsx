@@ -6,7 +6,7 @@ import type { Msg } from './messages'
 // live in the Gedankengang sidebar.
 export function Bubble({ m, live = false, onShowThinking }: { m: Msg; live?: boolean; onShowThinking?: () => void }) {
   if (m.role === 'user') {
-    return <div className="self-end"><div className="max-w-[560px] rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>
+    return <div className="self-end"><div className="max-w-[560px] whitespace-pre-wrap rounded-2xl bg-user px-4 py-2.5 text-[15px] leading-relaxed">{m.text}</div></div>
   }
   const isClaude = m.kind === 'claude'
   const split = splitThinking(m.text)

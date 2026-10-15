@@ -123,9 +123,31 @@ async function fsRoots() {
   return out
 }
 
-/** Sub-folders of `dir` (directories only), with the parent path for going up. */
-async function fsList(dir) {
-  if (!dir) return { path: '', parent: null, dirs: await fsRoots() }
+const FS_MAX_FILES = 500 // the file picker never lists more than this many files of one folder
+
+/** Regular files of a folder (`ents` = its readdir result) as { name, path, size }: sorted by name, at most
+ *  FS_MAX_FILES, same system-noise filter as for folders. Entries that cannot be stat'ed (locked system files) are left out. */
+async function fsFiles(abs, ents) {
+  const names = []
+  for (const e of ents) {
+    if (!e.isFile() && !e.isSymbolicLink()) continue
+    if (e.name.startsWith('$')) continue // Windows system noise
+    if (e.isSymbolicLink()) { try { if (!(await fs.stat(path.join(abs, e.name))).isFile()) continue } catch { continue } }
+    names.push(e.name)
+  }
+  names.sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }))
+  const out = []
+  for (const name of names.slice(0, FS_MAX_FILES)) {
+    const p = path.join(abs, name)
+    try { out.push({ name, path: p, size: (await fs.stat(p)).size }) } catch { /* vanished or locked */ }
+  }
+  return out
+}
+
+/** Sub-folders of `dir` (directories only), with the parent path for going up. With `withFiles` the listing also has
+ *  `files` (the in-app file picker); without it the answer is exactly what the folder picker always got. */
+async function fsList(dir, withFiles = false) {
+  if (!dir) return { path: '', parent: null, dirs: await fsRoots(), ...(withFiles ? { files: [] } : {}) }
   const abs = path.resolve(String(dir))
   let ents = []
   try { ents = await fs.readdir(abs, { withFileTypes: true }) } catch (e) { throw new Error('Ordner nicht lesbar: ' + (e && e.code || e)) }
@@ -139,7 +161,7 @@ async function fsList(dir) {
   }
   dirs.sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
   const parent = path.dirname(abs)
-  return { path: abs, parent: parent === abs ? '' : parent, dirs } // parent '' = go back to the roots
+  return { path: abs, parent: parent === abs ? '' : parent, dirs, ...(withFiles ? { files: await fsFiles(abs, ents) } : {}) } // parent '' = go back to the roots
 }
 
 
@@ -220,6 +242,33 @@ async function gitAction(dir, action, message) {
     return await runCmd('git', ['-C', p, 'commit', '-m', msg], p)
   }
   throw new Error('Unbekannte Git-Aktion.')
+}
+
+// Before the UI turns on OpenCode's snapshots ("Sicherung einschalten" = git init), make sure folders full of generated
+// files stay out of them. OpenCode snapshots the whole git worktree before each step: measured 2026-10-15, 20,000 files
+// in node_modules without .gitignore = 86 s before the first model request, 5 s with it (OD-26).
+const DEFAULT_GITIGNORE = [
+  '# Von OpenDante angelegt, damit die Sicherung (Rückgängig) schnell bleibt:',
+  '# Ordner mit Dateien, die sich jederzeit neu erzeugen lassen.',
+  'node_modules/', '.venv/', 'venv/', '__pycache__/', '*.pyc', 'dist/', 'build/', '.next/', '.cache/', 'target/',
+  '.opendante/', '',
+].join('\n')
+
+/** Check that a folder may get snapshots and give it a .gitignore if it has none. Refuses drive roots, the home folder
+ *  and system folders: snapshotting them would copy huge amounts of unrelated files. */
+async function prepareBackup(dir) {
+  const p = path.resolve(String(dir || ''))
+  try { if (!(await fs.stat(p)).isDirectory()) throw new Error() } catch { throw new Error('Diesen Ordner gibt es nicht.') }
+  const low = p.toLowerCase().replace(/[\\/]+$/, '')
+  const home = os.homedir().toLowerCase()
+  const blocked = path.parse(p).root.toLowerCase().replace(/[\\/]+$/, '') === low || low === home ||
+    [path.join(home, 'desktop'), path.join(home, 'documents'), path.join(home, 'downloads')].includes(low) ||
+    /^[a-z]:\\(windows|program files( \(x86\))?|programdata)(\\|$)/.test(low)
+  if (blocked) throw new Error('Für diesen Ordner schalte ich die Sicherung nicht ein: er ist zu groß und enthält fremde Dateien. Lege für das Projekt einen eigenen Unterordner an.')
+  const file = path.join(p, '.gitignore')
+  try { await fs.access(file); return { created: false } } catch { /* none yet */ }
+  await fs.writeFile(file, DEFAULT_GITIGNORE, 'utf8')
+  return { created: true }
 }
 
 // ---- Verlauf (gespeicherte Chats) ----
@@ -379,9 +428,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/chats/delete') { const b = await readBody(req); return sendJson(res, 200, await deleteChat(b.id)) }
     if (req.method === 'GET' && url.pathname.startsWith('/chats/')) return sendJson(res, 200, await loadChat(url.pathname.slice(7)))
     if (req.method === 'POST' && url.pathname === '/chats') { const b = await readBody(req); return sendJson(res, 200, await saveChat(b)) }
-    if (req.method === 'GET' && url.pathname === '/fs') return sendJson(res, 200, await fsList(url.searchParams.get('path') || ''))
+    if (req.method === 'GET' && url.pathname === '/fs') return sendJson(res, 200, await fsList(url.searchParams.get('path') || '', url.searchParams.get('files') === '1'))
     if (req.method === 'POST' && url.pathname === '/repo/clone') { const b = await readBody(req); return sendJson(res, 200, await cloneRepo(b.url)) }
     if (req.method === 'POST' && url.pathname === '/git') { const b = await readBody(req); return sendJson(res, 200, await gitAction(b.path, b.action, b.message)) }
+    if (req.method === 'POST' && url.pathname === '/git/prepare') { const b = await readBody(req); return sendJson(res, 200, await prepareBackup(b.path)) }
     if (req.method === 'POST' && url.pathname === '/settings') {
       const b = await readBody(req)
       await setGlobalInstructions(b.globalInstructions ?? '')

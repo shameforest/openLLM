@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FileDiff } from './api'
+import { useEscape } from './useEscape'
 
 // The line under an answer (OD-09, OD-22): which files the turn changed (+ a Vorher/Nachher view), undo / restore, and
 // for a plan from the plan agent the button that carries it out.
@@ -58,6 +59,7 @@ export function TurnActions({ info, onUndo, onRestore, onRunPlan }: {
 
 function DiffModal({ files, onClose }: { files: FileDiff[]; onClose: () => void }) {
   const [open, setOpen] = useState(0)
+  useEscape(true, onClose)
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="flex max-h-[85vh] w-full max-w-[860px] flex-col rounded-2xl border border-line bg-panel" onClick={(e) => e.stopPropagation()} data-testid="diff-modal">

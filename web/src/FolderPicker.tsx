@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { type FsEntry, type FsListing, baseName, listDir } from './fs'
+import { useEscape } from './useEscape'
 
 // In-app folder browser (replaces the native Windows dialog, which opened behind the app window). Browse into folders,
 // tick one or several, and add them all as working folders at once. Always visible inside the app window.
@@ -15,6 +16,7 @@ export function FolderPicker({ open, onClose, onPick }: { open: boolean; onClose
   }
   // Open at the roots each time the dialog is shown.
   useEffect(() => { if (open) { setPicked([]); go(undefined) } }, [open])
+  useEscape(open, onClose)
   if (!open) return null
 
   const toggle = (p: string) => setPicked((s) => (s.includes(p) ? s.filter((x) => x !== p) : [...s, p]))

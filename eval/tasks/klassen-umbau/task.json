@@ -1,0 +1,9 @@
+{
+  "id": "klassen-umbau",
+  "title": "Kontenverwaltung auf Klasse umbauen",
+  "prompt": "Im aktuellen Ordner liegt `konten.py`, eine kleine prozedurale Kontenverwaltung, die ihren Zustand in Modulvariablen hält (`_konten`, `_buchungen`, `_naechste_nr`, `_buchungszaehler`), und `main.py`, das sie benutzt. Baue `konten.py` objektorientiert um:\n\n1. Neue Klasse `Bank` (Konstruktor ohne Argumente), die den gesamten Zustand selbst hält (Konten, Buchungen und beide Zähler). Sie hat die Methoden `eroeffnen(inhaber, startguthaben=0)`, `einzahlen(nr, betrag)`, `abheben(nr, betrag)`, `ueberweisen(von_nr, nach_nr, betrag)`, `kontostand(nr)` und `auszug(nr)` mit genau demselben Verhalten wie die bisherigen Funktionen: gleiche Parameternamen, Rückgabewerte, Ausnahmetypen und Fehlermeldungen, gleiche Reihenfolge der Prüfungen, gleiches Format des Auszugs. Zwei verschiedene `Bank`-Instanzen dürfen keinen Zustand teilen (jede beginnt mit der Kontonummer 1001 und der Buchungsnummer 1).\n\n2. Die bisherigen Funktionen `eroeffnen`, `einzahlen`, `abheben`, `ueberweisen`, `kontostand` und `auszug` bleiben auf Modulebene erhalten, und zwar als dünne Wrapper, die an eine Standard-`Bank`-Instanz delegieren, die beim Import angelegt wird. Außer dieser einen Standard-Instanz darf es danach in `konten.py` keinen veränderlichen Zustand auf Modulebene mehr geben (keine Modulvariablen mit dict, list oder set, keine `global`-Anweisungen).\n\n3. `main.py` bleibt unverändert und muss weiterhin genau dieselbe Ausgabe liefern wie vor dem Umbau.\n\nVergleiche zur Kontrolle die Ausgabe von `python main.py` vor und nach dem Umbau. Arbeite selbständig ohne Rückfragen.",
+  "check": ["python", "check.py"],
+  "timeoutMin": 25,
+  "kind": "refactor",
+  "level": "schwer"
+}

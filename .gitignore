@@ -18,3 +18,6 @@ dist/
 # Testlauf results (scripts/eval.mjs): stay on this PC
 eval/results/
 *.tsbuildinfo
+
+# Browser smoke test (web/e2e/smoke.mjs): screenshots of the last run
+web/e2e/screens/
