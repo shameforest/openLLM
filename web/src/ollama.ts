@@ -31,7 +31,10 @@ export async function isLoaded(model: string): Promise<boolean> {
 export async function preload(model: string, minutes: number): Promise<void> {
   if (!model) return
   const ka = minutes > 0 ? `${Math.round(minutes)}m` : '5m'
-  await fetch(`${OLLAMA}/api/generate`, { method: 'POST', body: JSON.stringify({ model, keep_alive: ka }) })
+  const r = await fetch(`${OLLAMA}/api/generate`, { method: 'POST', body: JSON.stringify({ model, keep_alive: ka }) })
+  // A failed load (e.g. 500 "unable to allocate CUDA0 buffer" when the graphics memory is taken) must not count as a
+  // load time for the progress estimate.
+  if (!r.ok) throw new Error(`Ollama ${r.status}`)
 }
 
 // Remember recent load durations (ms) so the progress bar can estimate; keep the last 10.

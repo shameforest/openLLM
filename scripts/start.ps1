@@ -35,6 +35,13 @@ if (Up 8188) {
 }
 
 # Model server (Ollama).
+# A killed or crashed Ollama leaves its model runners (llama-server.exe) behind, still holding the graphics memory
+# (seen 2026-10-16: 17 GB held by a runner whose Ollama was gone; the next load failed or took 5 min). Stop runners
+# whose parent Ollama no longer runs — a live Ollama's own runners are left alone.
+$liveOllama = @(Get-Process ollama -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+Get-CimInstance Win32_Process -Filter "Name='llama-server.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -like "*\Ollama\*" -and $liveOllama -notcontains $_.ParentProcessId } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 if (-not (Up 11434)) {
     $ollama = (Get-Command ollama -ErrorAction SilentlyContinue).Source
     if (-not $ollama) { Note "Ollama wurde nicht gefunden. Bitte scripts\install.ps1 ausfuehren."; exit 1 }

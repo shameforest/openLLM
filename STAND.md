@@ -18,6 +18,7 @@ Verbesserer-Lauf 3 ist umgesetzt und gemessen. Ohne Nachdenken löst OpenDante d
 ## Lernen
 - [ ] Was Git-Schnappschüsse sind und warum „Rückgängig“ sie braucht
 ## Erledigt
+- [x] 2026-10-16: Modell-Vorladen mit Ladebalken am Shadow-PC bewiesen (38 s, danach sofort bereit); verwaiste Ollama-Prozesse räumt der Start jetzt weg
 - [x] 2026-10-15: „Schnell“ als Standard: umsetzen ohne Nachdenken (12/12, 2,3× schneller)
 - [x] 2026-10-15: Antwortgrenze 16k – große Dateien werden nicht mehr abgeschnitten
 - [x] 2026-10-15: Modellvergleich: Uncensored 12/12, Original 9/12
