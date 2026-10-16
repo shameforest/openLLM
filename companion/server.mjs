@@ -477,6 +477,25 @@ async function saveAttachment({ name, dataBase64 }) {
   return { path: file, name: safe, size: buf.length }
 }
 
+// ---- Projektnotiz (OD-41: a per-project memory that OpenDante prepends to every prompt in that folder) ----
+// Stored inside the project as .opendante/projektnotiz.md so it travels with the project and the agent can update it.
+const noteFile = (dir) => path.join(path.resolve(String(dir || '')), '.opendante', 'projektnotiz.md')
+async function readProjectNote(dir) {
+  if (!dir) return { note: '' } // the default server folder is not a project
+  try { return { note: await fs.readFile(noteFile(dir), 'utf8') } } catch { return { note: '' } }
+}
+async function writeProjectNote(dir, content) {
+  const d = path.resolve(String(dir || ''))
+  const st = await fs.stat(d).catch(() => null)
+  if (!st || !st.isDirectory()) throw new Error('Kein gültiger Projektordner.')
+  const s = String(content || '')
+  if (s.length > 20000) throw new Error('Notiz zu lang (max. 20.000 Zeichen).')
+  await fs.mkdir(path.join(d, '.opendante'), { recursive: true })
+  if (s.trim()) await fs.writeFile(noteFile(d), s)
+  else { try { await fs.unlink(noteFile(d)) } catch { /* already gone */ } }
+  return { ok: true, chars: s.trim() ? s.length : 0 }
+}
+
 // ---- static web UI ----
 async function serveStatic(url, res) {
   let rel
@@ -541,6 +560,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, slug })
     }
     if (req.method === 'POST' && url.pathname === '/attach') { const b = await readBody(req); return sendJson(res, 200, await saveAttachment(b)) }
+    if (req.method === 'GET' && url.pathname === '/project-note') return sendJson(res, 200, await readProjectNote(url.searchParams.get('path') || ''))
+    if (req.method === 'POST' && url.pathname === '/project-note') { const b = await readBody(req); return sendJson(res, 200, await writeProjectNote(b.path, b.content)) }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/claude/test') { const b = await readBody(req); return sendJson(res, 200, await testClaude(b.model)) }
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())

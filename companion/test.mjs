@@ -177,6 +177,21 @@ try {
   const attEmpty = await post('/attach', { name: 'leer.png', dataBase64: '' })
   ok(attEmpty.error && /leer/i.test(attEmpty.error), '/attach refuses an empty image')
 
+  // Projektnotiz (OD-41): per-project memory stored as .opendante/projektnotiz.md, read/written by the companion.
+  const noteSave = await post('/project-note', { path: proj, content: '# Projekt\nZweck: Testprojekt.' })
+  ok(noteSave.ok && noteSave.chars > 0, '/project-note saves a note into the project')
+  const noteOnDisk = await fs.readFile(path.join(proj, '.opendante', 'projektnotiz.md'), 'utf8').then(() => true).catch(() => false)
+  ok(noteOnDisk, 'the note is on disk at .opendante/projektnotiz.md')
+  const noteGet = await (await fetch(base + '/project-note?path=' + encodeURIComponent(proj))).json()
+  ok(noteGet.note.includes('Testprojekt'), 'GET /project-note returns the stored note')
+  const noteEmptyDir = await (await fetch(base + '/project-note?path=')).json()
+  ok(noteEmptyDir.note === '', 'GET /project-note returns empty for the default (no) folder')
+  await post('/project-note', { path: proj, content: '   ' })
+  const noteGone = await (await fetch(base + '/project-note?path=' + encodeURIComponent(proj))).json()
+  ok(noteGone.note === '', 'an empty note removes the file')
+  const noteBad = await post('/project-note', { path: path.join(proj, 'gibtsnicht'), content: 'x' })
+  ok(noteBad.error && /Projektordner/.test(noteBad.error), '/project-note refuses a non-existent folder')
+
   const noKey = await post('/claude', { prompt: 'hallo' })
   ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')
   const noKeyTest = await post('/claude/test', {})

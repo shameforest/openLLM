@@ -26,3 +26,10 @@ export const OFFLINE_HINT = 'Der lokale Dienst läuft noch nicht — er startet 
 /** Save a pasted or dropped image to disk (the companion returns its path) so it can be attached like a picked file. */
 export const saveImageAttachment = (name: string, dataBase64: string) =>
   companionPost<{ path: string; name: string; size: number }>('/attach', { name, dataBase64 })
+
+/** The project note (OD-41): a per-project memory stored as .opendante/projektnotiz.md in the working folder. */
+export async function getProjectNote(dir: string): Promise<{ note: string }> {
+  try { const r = await fetch(`${COMPANION}/project-note?path=${encodeURIComponent(dir)}`); return await r.json() } catch { return { note: '' } }
+}
+export const saveProjectNote = (path: string, content: string) =>
+  companionPost<{ ok: boolean; chars: number }>('/project-note', { path, content })

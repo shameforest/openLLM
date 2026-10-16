@@ -221,6 +221,8 @@ function createMock(appOrigin) {
       }
       if (m === 'POST' && p === '/git/prepare') return json(route, { created: true })
       if (m === 'POST' && p === '/offload-prefs') return json(route, { ok: true, offloadShare: body?.offloadShare ?? 0, dailyUsd: body?.claudeDailyUsd ?? 0 })
+      if (m === 'GET' && p === '/project-note') return json(route, { note: '' })
+      if (m === 'POST' && p === '/project-note') return json(route, { ok: true, chars: (body?.content || '').trim().length })
       if (m === 'GET' && p === '/claude/usage') return json(route, { usd: 0 })
       if (m === 'GET' && p === '/fs') {
         const dir = url.searchParams.get('path') || ''

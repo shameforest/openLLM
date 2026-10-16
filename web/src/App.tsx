@@ -4,7 +4,8 @@ import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionReque
 import { LOOP_HINT, autoDecision, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
-import { companionPost, saveImageAttachment } from './companion'
+import { companionPost, getProjectNote, saveImageAttachment } from './companion'
+import { ProjectNote } from './ProjectNote'
 import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
@@ -71,6 +72,8 @@ export default function App() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [filePickerOpen, setFilePickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([]) // files chosen for the next message ("Datei anhängen")
+  const [projectNote, setProjectNote] = useState('') // OD-41: per-project memory, prepended to every prompt in this folder
+  const [noteOpen, setNoteOpen] = useState(false)
   const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -210,6 +213,14 @@ export default function App() {
     const id = window.setTimeout(() => { void setOffloadPrefs(modes.offloadShare, modes.claudeDailyUsd).catch(() => {}) }, 400)
     return () => window.clearTimeout(id)
   }, [modes.offloadShare, modes.claudeDailyUsd])
+
+  // OD-41: keep the current project's note loaded (empty for the default server folder) so send() can prepend it, and
+  // refresh it when the working folder changes (and after a turn — the agent may have written it via "kennenlernen").
+  const loadNote = useCallback(() => {
+    if (online !== true || !modes.workdir) { setProjectNote(''); return }
+    void getProjectNote(modes.workdir).then((r) => setProjectNote(r.note || '')).catch(() => {})
+  }, [online, modes.workdir])
+  useEffect(() => { loadNote() }, [loadNote])
 
   // Advance the loading percentage while a load is in flight (estimate; it snaps to done when the load resolves).
   useEffect(() => {
@@ -399,6 +410,7 @@ export default function App() {
       }
     }
     setRun(null)
+    if (!run.sim) loadNote() // OD-41: the agent may have written/updated the project note this turn
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.turn.done])
 
@@ -455,6 +467,7 @@ export default function App() {
         let text = asked
         if (modes.autopilot) text = AUTOPILOT_PREFIX + text
         if (modes.offloadShare > 0) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
+        if (projectNote.trim()) text = `Projektnotiz zu diesem Projekt (dauerhafter Kontext):\n${projectNote.trim()}\n\n${text}` // OD-41
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         const title = chatRef.current.title
@@ -755,6 +768,7 @@ export default function App() {
                   <div className="absolute bottom-11 left-0 z-10 w-80 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setFilePickerOpen(true); setPlusOpen(false) }} data-testid="attach-file">📎 Datei anhängen… <span className="text-ink3">(Bilder auch mit Strg+V oder Ziehen)</span></button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setPickerOpen(true); setPlusOpen(false) }} data-testid="pick-folder">📁 Ordner hinzufügen…</button>
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setNoteOpen(true); setPlusOpen(false) }} data-testid="open-note" title="Dauerhafter Projekt-Kontext, der jeder Nachricht vorangestellt wird">📓 Projektnotiz{projectNote.trim() ? ' ✓' : '…'}</button>
                     {modes.folders.length > 0 && (
                       <div className="mt-1 border-t border-line pt-1">
                         <div className="px-3 py-1 text-[11px] uppercase tracking-wider text-ink3">Arbeitsordner</div>
@@ -816,6 +830,8 @@ export default function App() {
           </div>
         </div>
       </main>
+      <ProjectNote open={noteOpen} workdir={modes.workdir} onClose={() => setNoteOpen(false)} onSaved={(n) => setProjectNote(n)}
+        onLearn={() => { setNoteOpen(false); void send({ text: 'Lerne dieses Projekt kennen: Sieh dir die wichtigsten Dateien an (README, package.json o. Ä., Einstiegspunkte, Ordnerstruktur) und schreibe eine KURZE Projektnotiz (Markdown, höchstens ~25 Zeilen) mit Zweck, Aufbau, wichtigen Befehlen (Start/Test/Build) und Konventionen. Lege den Ordner .opendante an, falls nötig, und speichere die Notiz in .opendante/projektnotiz.md. Gib am Ende nur einen kurzen Satz aus, dass die Notiz geschrieben wurde.', agent: 'build' }) }} />
       <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFolders} />
       <FilePicker open={filePickerOpen} onClose={() => setFilePickerOpen(false)} onPick={addAttachments} />
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />
