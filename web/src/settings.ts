@@ -39,12 +39,16 @@ interface State extends Modes {
   // still thinks; "gruendlich" = always think. Measured 2026-10-15, 6 hard Testlauf tasks × 2: without thinking 12/12
   // in 74 min, with thinking 11/12 in 167 min. A new key, so existing setups get the measured default too.
   thinkMode: 'schnell' | 'gruendlich'
-  // How much of a task Claude may take over, as a share of the combined work measured in tokens (0 = off, slider above
-  // the prompt box). The decision WHAT may leave the PC stays with the safety gate (only self-contained, harmless
-  // parts); this only caps HOW MUCH. 0.3 ≈ "up to 30 % of the task through Claude".
+  // "Claude-Hilfe" range (slider above the prompt box), both as a share of the combined work measured in tokens.
+  // offloadShare = MAXIMUM: how much Claude may take over opportunistically (self-contained benign subtasks the local
+  // model marks); 0 = no offloading. The safety gate still decides WHAT may leave the PC; this only caps HOW MUCH.
+  // offloadMin = MINIMUM (floor): if the local model contributed almost everything (Claude's actual share stayed below
+  // this), OpenDante has Claude improve the finished answer once — so a little Claude value is guaranteed even though the
+  // local model rarely offloads on its own. 0 = never force it. Enforced MIN ≤ MAX in the UI.
   offloadShare: number
+  offloadMin: number
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode' | 'offloadShare'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode' | 'offloadShare' | 'offloadMin'>>) => void
   addFolders: (paths: string[]) => void // remember folders and make the first one active
   removeFolder: (path: string) => void
 }
@@ -67,7 +71,8 @@ export const useSettings = create<State>()(
       planFirst: false,
       claudeDailyUsd: 2,
       thinkMode: 'schnell',
-      offloadShare: 0, // off until the user moves the slider above the prompt box
+      offloadShare: 0, // MAX: off until the user moves the slider above the prompt box
+      offloadMin: 0, // MIN floor: off until set; then Claude improves the result when the local model offloaded too little
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
       set: (p) => set(p),
       addFolders: (paths) => set((s) => {

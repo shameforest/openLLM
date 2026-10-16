@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hideOffloadMarkers, offloadAllowed, offloadBudget, offloadTasks, taskSplit } from './claude'
+import { claudeShareBelow, hideOffloadMarkers, offloadAllowed, offloadBudget, offloadTasks, taskSplit } from './claude'
 
 describe('hideOffloadMarkers', () => {
   it('replaces a closed handoff block with a short note', () => {
@@ -86,5 +86,20 @@ describe('offloadBudget — the slider caps how much of the task goes to Claude'
   it('is 0 when the slider is off, and never negative', () => {
     expect(offloadBudget(0, 1000, 0)).toBe(0)
     expect(offloadBudget(0.5, 0, 0)).toBe(0) // nothing produced locally yet → nothing to offload
+  })
+})
+
+describe('claudeShareBelow — the MIN floor triggers a Claude improvement (OD-64)', () => {
+  it('fires when Claude\'s actual share is below the minimum', () => {
+    expect(claudeShareBelow(0.2, 1000, 0)).toBe(true)   // model offloaded nothing → 0 % < 20 %
+    expect(claudeShareBelow(0.2, 800, 100)).toBe(true)  // 100/900 ≈ 11 % < 20 %
+  })
+  it('does not fire once the minimum is reached', () => {
+    expect(claudeShareBelow(0.2, 800, 200)).toBe(false) // 200/1000 = 20 % → at the floor
+    expect(claudeShareBelow(0.2, 500, 500)).toBe(false) // 50 % ≥ 20 %
+  })
+  it('is off when MIN is 0, and treats "nothing yet" as below the floor', () => {
+    expect(claudeShareBelow(0, 1000, 0)).toBe(false)
+    expect(claudeShareBelow(0.2, 0, 0)).toBe(true)
   })
 })

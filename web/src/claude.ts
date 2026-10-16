@@ -27,6 +27,16 @@ const OFFLOAD_SYSTEM =
   '(Code mit kurzen deutschen Kommentaren, falls es Code ist), ohne Rückfragen. Wenn die Aufgabe ohne zusätzlichen ' +
   'Zusammenhang nicht eindeutig lösbar ist, sage das in einem Satz, statt zu raten.'
 
+// MIN floor (Claude-Hilfe): the local model did almost all the work, so Claude improves the finished answer once — the
+// "geschickte Kommunikation über die Ergebnisse" the user asked for. It gets the request and the local answer and returns
+// an improved version; if the answer is already good, it says so and adds only small refinements.
+const IMPROVE_SYSTEM =
+  'Du bist ein starker Senior-Entwickler. Unten steht die Anfrage eines Nutzers und die Antwort eines schwächeren, ' +
+  'lokalen Modells darauf. Verbessere die Antwort: behebe konkrete Fehler, ergänze Fehlendes oder Randfälle, mache ' +
+  'Code lauffähig und sauber. Ist die Antwort bereits gut, bestätige das in einem Satz und ergänze höchstens kleine ' +
+  'Verbesserungen — erfinde nichts dazu. Antworte auf Deutsch und gib die VERBESSERTE Fassung zurück (bei Code den ' +
+  'vollständigen, lauffähigen Code mit kurzen Kommentaren), ohne Rückfragen.'
+
 export interface ClaudeReply { text: string; model: string; usage?: { input_tokens: number; output_tokens: number }; costUsd?: number; todayUsd?: number }
 
 // capUsd: daily spending cap in USD (Einstellungen; 0 = none). The companion refuses the call once today's spend reached it.
@@ -35,6 +45,13 @@ export const claudeAudit = (content: string, model: string, capUsd = 0) =>
 
 export const claudeOffload = (task: string, model: string, capUsd = 0) =>
   companionPost<ClaudeReply>('/claude', { system: OFFLOAD_SYSTEM, prompt: task, model, capUsd, kind: 'offload' })
+
+/** MIN floor: ask Claude to improve the finished local answer. Sends the request + the answer (like the audit, this is
+ *  the whole result, so it is NOT an "offload" kind and reaches the normal key/cap check, not the offload-only gate). */
+export const claudeImprove = (request: string, answer: string, model: string, capUsd = 0) => {
+  const prompt = `ANFRAGE DES NUTZERS:\n${request || '(nicht verfügbar — verbessere die Antwort für sich)'}\n\nANTWORT DES LOKALEN MODELLS:\n${answer}`
+  return companionPost<ClaudeReply>('/claude', { system: IMPROVE_SYSTEM, prompt, model, capUsd })
+}
 
 /** Keep the companion in sync with the "Claude-Hilfe" slider and the daily cap, so the MCP offload tool
  *  (companion/claude-mcp.mjs), which OpenCode calls without the browser, honours the same on/off and budget. */
@@ -103,4 +120,13 @@ export function offloadBudget(share: number, localTokens: number, claudeTokens: 
   if (s === 0) return 0
   const allowed = (s / (1 - s)) * localTokens // claude/(local+claude) ≤ s  ⇔  claude ≤ s/(1−s)·local
   return Math.max(0, Math.round(allowed - claudeTokens))
+}
+
+/** MIN floor: should Claude improve the finished answer? True when a minimum share is set and Claude's actual share of
+ *  the work so far is still below it — typically because the local model marked little or nothing for offload. */
+export function claudeShareBelow(minShare: number, localTokens: number, claudeTokens: number): boolean {
+  if (minShare <= 0) return false
+  const total = localTokens + claudeTokens
+  if (total <= 0) return true // nothing measured yet → below the floor
+  return claudeTokens / total < minShare - 0.001 // tiny epsilon so being exactly at the floor does not retrigger
 }

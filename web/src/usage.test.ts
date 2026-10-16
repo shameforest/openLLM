@@ -46,6 +46,10 @@ describe('chat usage', () => {
     expect(usageSplit(u)).toEqual({ localPct: 80, claudePct: 20 })
     expect(savedTokens(u)).toBe(10800) // everything the local model read + wrote
   })
+  it('counts a MIN-floor improvement toward Claude, but not as an offload or audit (OD-64)', () => {
+    const u = addClaude(emptyUsage(), 'improve', { input_tokens: 400, output_tokens: 120 })
+    expect([u.claudeIn, u.claudeOut, u.offloadOut, u.auditOut, u.offloads]).toEqual([400, 120, 0, 0, 0])
+  })
   it('sums many chats, tolerating fields missing in older saves', () => {
     const a = addClaude(addLocal(emptyUsage(), { ...emptyTurn(), usage: { input: 1000, output: 300 } }), 'offload', { input_tokens: 50, output_tokens: 100 })
     const t = totalUsage([a, a, { local: 100 }])

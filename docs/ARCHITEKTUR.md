@@ -205,9 +205,9 @@ irrevocable. Tested: `matchesAlways`/`kindLabel` in `requests.test.ts`, `AlwaysA
 
 ## 6. Claude modes (paid, need a key; never run for real yet)
 - **Autopilot** (free): prefix tells the local model to follow skill `batch-autopilot`. Effect never measured.
-- **Offload (slider "Claude-Hilfe", 0–50 %, above the prompt box, since 2026-10-16):** the slider sets a budget — how
-  much of a task may go to Claude, as a share of the combined work in tokens (`offloadBudget`) — and is mirrored to the
-  companion (`POST /offload-prefs`). Two trigger paths, both gated by a content safety gate (`offloadAllowed` in the UI
+- **Offload (slider "Claude-Hilfe" → MAX, since 2026-10-16):** the **Höchstens** slider (`offloadShare`, 0–50 %) sets a
+  budget — how much of a task may go to Claude, as a share of the combined work in tokens (`offloadBudget`) — and is
+  mirrored to the companion (`POST /offload-prefs`). Two trigger paths, both gated by a content safety gate (`offloadAllowed` in the UI
   + `offloadBlocked` in the companion: blocks explicit/face-swap, secrets, personal data) and the daily cap:
   1. **MCP tool `claude_helfer`** (`companion/claude-mcp.mjs`, a stdio JSON-RPC server wired in opencode.json `mcp`):
      the local model calls it with a self-contained subtask; it forwards to `POST /claude {kind:'offload'}` and returns
@@ -219,6 +219,12 @@ irrevocable. Tested: `matchesAlways`/`kindLabel` in `requests.test.ts`, `AlwaysA
   (even told it may use `claude_helfer`) it did the work itself; it calls the tool reliably only when told to directly.
   So auto-offload up to the slider rarely fires on its own with this model; the tool works reliably when invoked. The
   plumbing (slider, gate, budget, MCP tool, feedback) is solid; the spontaneous trigger is a model-behaviour limit.
+- **MIN floor (second slider "Mindestens", `offloadMin`, OD-64, 2026-10-16):** because the local model rarely offloads on
+  its own, a floor guarantees some Claude value: if, at the turn's end, Claude's actual share stayed below MIN
+  (`claudeShareBelow`), `claudeImprove` sends the user request + the finished answer to Claude once to improve it. Like the
+  audit this is the WHOLE result and thus **not** an `offload` kind — it reaches the normal key/cap check, not the offload
+  gate (the user opts in via the slider). Counted via `addClaude(…, 'improve')`; client-side only (not mirrored). MIN ≤ MAX
+  is enforced in the UI. Not run for real yet (no key) — trigger logic unit-tested, UI + MAX-mirror e2e-tested (step i).
 - **Audit (toggle in Modi):** after each turn the answer *prose* (not the files the tools wrote) goes to Claude for review.
 - Spend: price table in the companion, daily cap per UTC day (the cap value still comes from the request — AN-10, open).
 

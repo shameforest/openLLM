@@ -36,8 +36,9 @@ export function addLocal(u: ChatUsage, t: Turn): ChatUsage {
   return { ...u, local: u.local + tokens, localIn: u.localIn + (t.usage?.input ?? 0), localEstimated: u.localEstimated || estimated }
 }
 
-/** Add one Claude call (an offloaded subtask or the audit) with the usage the API reported. */
-export function addClaude(u: ChatUsage, kind: 'offload' | 'audit', usage?: { input_tokens: number; output_tokens: number }): ChatUsage {
+/** Add one Claude call (an offloaded subtask, the audit, or a MIN-floor improvement) with the usage the API reported.
+ *  'improve' counts toward Claude's share (claudeIn/Out) but not toward the offload-subtask or audit sub-buckets. */
+export function addClaude(u: ChatUsage, kind: 'offload' | 'audit' | 'improve', usage?: { input_tokens: number; output_tokens: number }): ChatUsage {
   const inT = usage?.input_tokens ?? 0
   const outT = usage?.output_tokens ?? 0
   return {

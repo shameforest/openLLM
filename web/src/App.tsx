@@ -17,7 +17,7 @@ import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
 import { type Attachment, IMAGE_HINT, blobToBase64, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
-import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadAllowed, offloadBudget, offloadTasks, setOffloadPrefs } from './claude'
+import { OFFLOAD_PREFIX, claudeAudit, claudeImprove, claudeOffload, claudeShareBelow, offloadAllowed, offloadBudget, offloadTasks, setOffloadPrefs } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, turnTokens } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
 import { chatTitle, newChatId, useChats } from './chats'
@@ -66,7 +66,7 @@ export default function App() {
   const [, setTick] = useState(0)
   const modes = useSettings()
   const skills = useSkills()
-  const modesActive = [modes.autopilot, modes.offloadShare > 0, modes.audit].filter(Boolean).length
+  const modesActive = [modes.autopilot, modes.offloadShare > 0 || modes.offloadMin > 0, modes.audit].filter(Boolean).length
   const [modiOpen, setModiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
@@ -84,6 +84,7 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const chats = useChats()
   const chatRef = useRef<{ id: string; createdAt: number; title: string } | null>(null) // the chat being saved
+  const lastPromptRef = useRef('') // the last user request (clean text), for the MIN-floor "Claude verbessert das Ergebnis" call
   const [activeChat, setActiveChat] = useState<string | null>(null) // highlighted in the Verlauf
   const resumeDirRef = useRef<string | null>(null) // reopening a chat switches to its folder without clearing it
 
@@ -429,7 +430,7 @@ export default function App() {
       }
     }
     // Hand suitable work to Claude — but never for the offline demo or a turn the user stopped (AN-08).
-    if (!run.sim && !run.stopped && !run.gap && !t.error && t.text.trim() && (modes.offloadShare > 0 || modes.audit)) {
+    if (!run.sim && !run.stopped && !run.gap && !t.error && t.text.trim() && (modes.offloadShare > 0 || modes.offloadMin > 0 || modes.audit)) {
       const localTotal = usageRef.current.local + turnTokens(t).tokens
       void postProcessClaude(t, localTotal)
     }
@@ -483,6 +484,7 @@ export default function App() {
   async function send(override?: { text: string; agent: 'plan' | 'build' }) {
     const prompt = (override?.text ?? input).trim()
     if (!prompt || running) return
+    lastPromptRef.current = prompt // remembered for a possible MIN-floor improvement of this turn's answer
     const agent = override?.agent ?? (modes.planFirst ? 'plan' : 'build')
     const files = override ? [] : attachments
     if (!override) { setInput(''); setAttachments([]) }
@@ -543,8 +545,8 @@ export default function App() {
     const text = splitThinking(t.text).answer || t.text // review/offload the final answer, not the thinking
     const myChat = chatRef.current?.id // a Claude reply must land in the chat it belongs to, not whichever is open now
     const inChat = (final: Msg) => { if (chatRef.current?.id === myChat) finishClaude(final) }
+    let claudeOut = usageRef.current.claudeOut
     if (modes.offloadShare > 0) {
-      let claudeOut = usageRef.current.claudeOut
       for (const task of offloadTasks(text)) {
         const gate = offloadAllowed(task)
         if (!gate.ok) { if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: `↗ Teilaufgabe ${gate.reason}` }]); continue }
@@ -560,6 +562,17 @@ export default function App() {
           inChat({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` })
         } catch (e) { inChat({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
       }
+    }
+    // MIN floor (Claude-Hilfe): the local model offloaded little or nothing, so Claude's share stayed below the minimum
+    // → have Claude improve the finished answer once, so at least some Claude value is guaranteed (the user's wish).
+    if (claudeShareBelow(modes.offloadMin, localTotal, claudeOut)) {
+      if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '↗ Claude verbessert das Ergebnis …', pending: true }])
+      try {
+        const r = await claudeImprove(lastPromptRef.current, text, modes.claudeModel, modes.claudeDailyUsd)
+        claudeOut += r.usage?.output_tokens ?? 0
+        setUsage((u) => addClaude(u, 'improve', r.usage))
+        inChat({ role: 'assistant', kind: 'claude', text: `↗ Von Claude verbesserte Fassung (${r.model}):\n\n${r.text}` })
+      } catch (e) { inChat({ role: 'assistant', kind: 'claude', text: `↗ Claude-Verbesserung ging nicht: ${String((e as Error).message || e)}` }) }
     }
     if (modes.audit) {
       if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '🔍 Claude prüft das Ergebnis …', pending: true }])
@@ -712,25 +725,45 @@ export default function App() {
 
         <div className="border-t border-line bg-bg px-6 py-4">
           <div className="mx-auto max-w-[760px]">
-            {/* Claude-Hilfe: the slider sets how much of a task may go to Claude; a safety gate decides WHAT may leave. */}
+            {/* Claude-Hilfe (OD-64): two sliders — "Höchstens" caps how much Claude may take over opportunistically
+                (benign subtasks the local model marks); "Mindestens" is a floor — if the local model offloaded too
+                little, Claude improves the finished answer so a bit of Claude value is guaranteed. A safety gate still
+                decides WHAT may leave the PC. MIN ≤ MAX is enforced: moving one thumb past the other pushes the other. */}
             <div className="mb-2" data-testid="offload-row">
-              <div className="flex items-center gap-3">
-                <label htmlFor="offload-share" className="shrink-0 text-[12px] text-ink2" title="Wie viel der Aufgabe darf der stärkere Claude übernehmen? Nur unbedenkliche, in sich geschlossene Teile; Sensibles bleibt lokal.">↗ Claude-Hilfe</label>
+              <div className="flex items-center justify-between gap-3">
+                <span className="shrink-0 text-[12px] text-ink2">↗ Claude-Hilfe</span>
+                {(modes.offloadShare > 0 || modes.offloadMin > 0 || modes.audit) && <UsageReadout u={shownUsage} />}
+              </div>
+              <div className="mt-1 flex items-center gap-3">
+                <label htmlFor="offload-share" className="w-[72px] shrink-0 text-[11px] text-ink3" title="So viel darf Claude höchstens von der Aufgabe übernehmen — nur unbedenkliche, in sich geschlossene Teilaufgaben.">Höchstens</label>
                 <input id="offload-share" type="range" min={0} max={Math.round(OFFLOAD_SHARE_MAX * 100)} step={5}
-                  value={Math.round(modes.offloadShare * 100)} onChange={(e) => modes.set({ offloadShare: Number(e.target.value) / 100 })}
-                  className="h-1 min-w-0 flex-1 cursor-pointer accent-accent" data-testid="offload-share" aria-label="Anteil an Claude" />
+                  value={Math.round(modes.offloadShare * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; modes.set({ offloadShare: v, ...(v < modes.offloadMin ? { offloadMin: v } : {}) }) }}
+                  className="h-1 min-w-0 flex-1 cursor-pointer accent-accent" data-testid="offload-share" aria-label="Höchstens an Claude" />
                 <span className="mono w-9 shrink-0 text-right text-[12px] text-ink2" data-testid="offload-share-value">{Math.round(modes.offloadShare * 100)} %</span>
               </div>
-              {modes.offloadShare > 0 && !modes.apiKey.trim() ? (
-                <div className="mt-1 text-[11px] text-amber-400/90">Dafür fehlt noch dein Claude-Schlüssel — Einstellungen → Claude-Verbindung. Bis dahin bleibt alles lokal.</div>
+              <div className="mt-1 flex items-center gap-3">
+                <label htmlFor="offload-min" className="w-[72px] shrink-0 text-[11px] text-ink3" title="Erreicht Claude diesen Anteil nicht von selbst, lässt OpenDante die fertige Antwort einmal von Claude verbessern.">Mindestens</label>
+                <input id="offload-min" type="range" min={0} max={Math.round(OFFLOAD_SHARE_MAX * 100)} step={5}
+                  value={Math.round(modes.offloadMin * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; modes.set({ offloadMin: v, ...(v > modes.offloadShare ? { offloadShare: v } : {}) }) }}
+                  className="h-1 min-w-0 flex-1 cursor-pointer accent-accent" data-testid="offload-min" aria-label="Mindestens von Claude" />
+                <span className="mono w-9 shrink-0 text-right text-[12px] text-ink2" data-testid="offload-min-value">{Math.round(modes.offloadMin * 100)} %</span>
+              </div>
+              {(modes.offloadShare > 0 || modes.offloadMin > 0) && !modes.apiKey.trim() ? (
+                <div className="mt-1 text-[11px] text-amber-400/90" data-testid="offload-nokey">Dafür fehlt noch dein Claude-Schlüssel — Einstellungen → Claude-Verbindung. Bis dahin bleibt alles lokal.</div>
               ) : (
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
-                  <span className="min-w-0 flex-1 text-[11px] text-ink3">
-                    {modes.offloadShare === 0
-                      ? 'Aus — alles läuft lokal und kostenlos. Schiebe nach rechts, damit Claude unbedenkliche Teilaufgaben übernimmt (kostet API-Gebühren).'
-                      : `Bis zu ${Math.round(modes.offloadShare * 100)} % der Aufgabe dürfen an Claude (${modes.claudeModel}). Nur in sich geschlossene, unbedenkliche Teile — Sensibles bleibt lokal.`}
-                  </span>
-                  {(modes.offloadShare > 0 || modes.audit) && <UsageReadout u={shownUsage} />}
+                <div className="mt-1 text-[11px] text-ink3" data-testid="offload-help">
+                  {modes.offloadShare === 0 && modes.offloadMin === 0
+                    ? 'Aus — alles läuft lokal und kostenlos. „Höchstens“ lässt Claude unbedenkliche Teilaufgaben übernehmen; „Mindestens“ lässt Claude die fertige Antwort verbessern, falls das lokale Modell zu wenig abgibt (kostet API-Gebühren).'
+                    : [
+                        modes.offloadShare > 0
+                          ? `Bis zu ${Math.round(modes.offloadShare * 100)} % gehen an Claude (${modes.claudeModel}) — nur unbedenkliche, in sich geschlossene Teile, Sensibles bleibt lokal.`
+                          : 'Kein selbsttätiges Auslagern von Teilaufgaben.',
+                        modes.offloadMin > 0
+                          ? `Mindestens ${Math.round(modes.offloadMin * 100)} %: Bleibt Claudes Anteil darunter, verbessert Claude am Ende die fertige Antwort.`
+                          : '',
+                      ].filter(Boolean).join(' ')}
                 </div>
               )}
             </div>

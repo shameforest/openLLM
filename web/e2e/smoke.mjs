@@ -568,6 +568,30 @@ async function main() {
     await hidden('settings', 'settings panel')
   })
 
+  // i ---------------------------------------------------------------------------------------------------------------
+  await step('i. Claude-Hilfe Min/Max sliders: values, MIN≤MAX clamping, mirrored to the companion (OD-64)', async () => {
+    const setRange = (testid, pct) => tid(testid).evaluate((el, v) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      set.call(el, String(v)); el.dispatchEvent(new Event('input', { bubbles: true }))
+    }, pct)
+    await visible('offload-share', 'Höchstens (MAX) slider')
+    await visible('offload-min', 'Mindestens (MIN) slider')
+    check((await textOf('offload-share-value')) === '0 %' && (await textOf('offload-min-value')) === '0 %', 'expected both sliders at 0 % to start')
+
+    await setRange('offload-share', 30)
+    await waitText('offload-share-value', /30 %/, 'Höchstens 30 %')
+    const mirrored = await waitFor(() => mock.calls('comp', 'POST', /^\/offload-prefs$/).find((c) => c.body?.offloadShare === 0.3), 'offload-prefs mirrored with offloadShare 0.3')
+    check(mirrored.body.offloadShare === 0.3, `expected the companion to receive offloadShare 0.3, got ${JSON.stringify(mirrored.body)}`)
+    // no Claude key on the test instance → moving a slider shows the "key fehlt" hint (Claude-Hilfe is on but stays local)
+    await visible('offload-nokey', 'Claude-key-missing hint once a slider is > 0')
+
+    // MIN above MAX pushes MAX up (MIN ≤ MAX enforced)
+    await setRange('offload-min', 40)
+    await waitText('offload-min-value', /40 %/, 'Mindestens 40 %')
+    await waitText('offload-share-value', /40 %/, 'Höchstens pushed up to 40 %')
+    await shot('claude-help-sliders')
+  })
+
   // safety nets -----------------------------------------------------------------------------------------------------
   await step('no request escaped the mocks, no uncaught page error', async () => {
     check(s.external.length === 0, `requests to unexpected hosts were blocked: ${s.external.join(' | ')}`)
