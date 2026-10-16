@@ -10,17 +10,27 @@ Add-Type -AssemblyName System.Windows.Forms
 function Note($t) { [System.Windows.Forms.MessageBox]::Show($t, "OpenDante") | Out-Null }
 function Up($port) { [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) }
 
-# The GPU holds only one big model at a time: OpenDali's image engine (port 8188) must not run alongside the LLM.
-# OpenDali lives in C:\Studio (override with OPENDALI_ROOT). A missing stop script is reported, not swallowed.
-$Dali = if ($env:OPENDALI_ROOT) { $env:OPENDALI_ROOT } else { "C:\Studio" }
+# The GPU holds only one big model at a time: OpenDali's image engine (ComfyUI on 8188 + its server on 3790) must not
+# run alongside the LLM. It often lingers as a hidden background process from an earlier OpenDali session (closing the
+# window does not stop it), which is why this can fire even when no OpenDali window is open. If the user agrees, free
+# the GPU by its PORTS — that works no matter where OpenDali is installed, so there is no missing-stop-script error.
 if (Up 8188) {
     $r = [System.Windows.Forms.MessageBox]::Show(
-        "OpenDali (Bildgenerator) laeuft gerade und belegt die Grafikkarte. Zuerst beenden?`n`nJa = OpenDali beenden und fortfahren.",
+        "OpenDali (sein Bild-Motor ComfyUI) laeuft noch im Hintergrund und belegt die Grafikkarte.`n`nJa = OpenDali beenden und mit OpenDante fortfahren.",
         "OpenDante", "YesNo")
     if ($r -eq "Yes") {
-        $daliStop = Join-Path $Dali "scripts\stop.ps1"
-        if (Test-Path $daliStop) { & $daliStop | Out-Null }
-        else { Note "OpenDali konnte nicht beendet werden: $daliStop fehlt.`nOpenDali bitte selbst schliessen (oder OPENDALI_ROOT setzen)." }
+        # Prefer OpenDali's own stop script (clean shutdown) if we can locate it; otherwise stop the ports directly.
+        $stopped = $false
+        foreach ($root in @($env:OPENDALI_ROOT, (Join-Path (Split-Path $Root) 'AI'), 'C:\ai', 'C:\OpenDali')) {
+            if ($root) { $s = Join-Path $root 'scripts\stop.ps1'; if (Test-Path $s) { & $s | Out-Null; $stopped = $true; break } }
+        }
+        if (-not $stopped) {
+            foreach ($port in 8188, 3790) {
+                Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+                    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+            }
+        }
+        Start-Sleep -Milliseconds 500
     }
 }
 
