@@ -3,14 +3,14 @@ import { type Progress, type StepSample, type TaskSample, finishStep, reduceProg
 import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
 import { LOOP_HINT, autoDecision, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
-import { keepWarm } from './ollama'
+import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
 import { companionPost } from './companion'
 import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
 import { type Turn, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
-import { AUTOPILOT_PREFIX, useSettings } from './settings'
+import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
@@ -46,6 +46,8 @@ export default function App() {
   const [stepSamples, setStepSamples] = useState<StepSample[]>(() => loadList(STEPS_KEY))
   const [taskSamples, setTaskSamples] = useState<TaskSample[]>(() => loadList(TASKS_KEY))
   const [online, setOnline] = useState<boolean | null>(null)
+  const [load, setLoad] = useState<{ startedAt: number; pct: number } | null>(null) // model being loaded into the GPU
+  const loadingRef = useRef(false)
   const [, setTick] = useState(0)
   const modes = useSettings()
   const skills = useSkills()
@@ -131,7 +133,31 @@ export default function App() {
     } catch (e) {
       setHistoryMsg(`Chat ließ sich nicht öffnen: ${String((e as Error).message || e)}`)
     }
+    void ensureLoaded() // start loading the model into the GPU while the user reads the reopened chat
   }
+
+  // Load the model into the GPU ahead of time (on start, on model change, when reopening a chat) and show a progress
+  // bar while it loads — so the first answer no longer waits ~30 s. Also keeps it warm (keepWarmMin).
+  async function ensureLoaded() {
+    if (loadingRef.current || online !== true || !modes.localModel) return
+    if (await isLoaded(modes.localModel)) { void keepWarm(modes.localModel, modes.keepWarmMin); return }
+    loadingRef.current = true
+    const startedAt = Date.now()
+    setLoad({ startedAt, pct: 1 })
+    try { await preload(modes.localModel, modes.keepWarmMin); recordLoadMs(Date.now() - startedAt) } catch { /* Ollama busy or model not downloaded */ }
+    setLoad(null)
+    loadingRef.current = false
+  }
+
+  // Preload whenever the server comes online or the chosen model changes.
+  useEffect(() => { if (online === true) void ensureLoaded() }, [online, modes.localModel]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Advance the loading percentage while a load is in flight (estimate; it snaps to done when the load resolves).
+  useEffect(() => {
+    if (!load) return
+    const id = window.setInterval(() => setLoad((l) => (l ? { ...l, pct: loadPct(Date.now() - l.startedAt, estLoadMs()) } : l)), 500)
+    return () => window.clearInterval(id)
+  }, [load?.startedAt])
 
   // Requests the agent is waiting on: permission prompts (a command, a file outside the project, a loop it is stuck in)
   // and multiple-choice questions. Without an answer the agent waits forever — this was the main reason long tasks
@@ -618,6 +644,18 @@ export default function App() {
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />
       <Modi open={modiOpen} onClose={() => setModiOpen(false)} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {load && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40" data-testid="model-loading">
+          <div className="w-[min(92vw,420px)] rounded-2xl border border-line bg-panel p-5 text-center">
+            <div className="text-[15px] font-medium">Modell wird in die Grafikkarte geladen …</div>
+            <div className="mt-1 text-[13px] text-ink3"><span className="mono">{localModelName(modes.localModel)}</span> · einmalig, danach bleibt es warm</div>
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-line">
+              <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${load.pct}%` }} />
+            </div>
+            <div className="mono mt-1.5 text-[13px] text-ink2">{load.pct}%</div>
+          </div>
+        </div>
+      )}
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 @keyframes slide { 0% { left: -33% } 100% { left: 100% } }`}</style>
     </div>

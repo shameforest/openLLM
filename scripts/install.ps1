@@ -103,9 +103,12 @@ Step 4 "Ollama fuer Programmieren einstellen"
 [Environment]::SetEnvironmentVariable("OLLAMA_CONTEXT_LENGTH", "65536", "User")
 [Environment]::SetEnvironmentVariable("OLLAMA_KV_CACHE_TYPE", "q8_0", "User")
 [Environment]::SetEnvironmentVariable("OLLAMA_FLASH_ATTENTION", "1", "User")
+# Keep the model in the graphics card for 60 min after use, so resuming a chat does not reload the 18 GB each time
+# (the app also keeps it warm and preloads on open; this is the belt-and-suspenders default).
+[Environment]::SetEnvironmentVariable("OLLAMA_KEEP_ALIVE", "60m", "User")
 # OpenCode: a formal plan-then-approve gate (experimental in v1.x, CLII client only). Remove if it misbehaves.
 [Environment]::SetEnvironmentVariable("OPENCODE_EXPERIMENTAL_PLAN_MODE", "1", "User")
-Ok "Kontext 65536, KV-Cache q8_0, Plan-Modus gesetzt (wirkt nach Neustart von Ollama/OpenCode)"
+Ok "Kontext 65536, KV-Cache q8_0, Warmhalten 60m, Plan-Modus gesetzt (wirkt nach Neustart von Ollama/OpenCode)"
 
 # 5 -------------------------------------------------------------- the model
 Step 5 "Modell herunterladen ($Model, ca. 18 GB)"

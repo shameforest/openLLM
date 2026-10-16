@@ -20,3 +20,36 @@ export async function keepWarm(model: string, minutes: number): Promise<void> {
     await fetch(`${OLLAMA}/api/generate`, { method: 'POST', body: JSON.stringify({ model, keep_alive: `${Math.round(minutes)}m` }) })
   } catch { /* Ollama not reachable: nothing to keep */ }
 }
+
+/** Is this model resident in the GPU right now? */
+export async function isLoaded(model: string): Promise<boolean> {
+  try { return (await loadedModels()).some((n) => n.toLowerCase() === model.toLowerCase()) } catch { return false }
+}
+
+/** Load the model into the GPU now (an empty generate request is Ollama's documented preload) and keep it warm for
+ *  `minutes`. Resolves once the model is resident — so the caller can show a progress bar while it is pending. */
+export async function preload(model: string, minutes: number): Promise<void> {
+  if (!model) return
+  const ka = minutes > 0 ? `${Math.round(minutes)}m` : '5m'
+  await fetch(`${OLLAMA}/api/generate`, { method: 'POST', body: JSON.stringify({ model, keep_alive: ka }) })
+}
+
+// Remember recent load durations (ms) so the progress bar can estimate; keep the last 10.
+const LOAD_KEY = 'openllm.loadms'
+export function recordLoadMs(ms: number): void {
+  if (!(ms > 0) || ms > 10 * 60_000) return
+  try { const a = JSON.parse(localStorage.getItem(LOAD_KEY) || '[]'); a.push(Math.round(ms)); localStorage.setItem(LOAD_KEY, JSON.stringify(a.slice(-10))) } catch { /* private mode */ }
+}
+/** Median of recent load durations; defaults to 30 s (measured range 10–45 s for the 27B model) when nothing is known. */
+export function estLoadMs(): number {
+  try {
+    const a = (JSON.parse(localStorage.getItem(LOAD_KEY) || '[]') as number[]).filter((x) => x > 0).sort((x, y) => x - y)
+    if (a.length) return a[Math.floor(a.length / 2)]
+  } catch { /* private mode */ }
+  return 30_000
+}
+/** A setup-style percentage (1–99) from elapsed vs. the estimate; it never hits 100 until the load actually finishes. */
+export function loadPct(elapsedMs: number, estMs: number): number {
+  const est = estMs > 0 ? estMs : 30_000
+  return Math.min(99, Math.max(1, Math.round((elapsedMs / est) * 100)))
+}
