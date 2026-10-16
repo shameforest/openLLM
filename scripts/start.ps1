@@ -21,8 +21,9 @@ if (Up 8188) {
     if ($r -eq "Yes") {
         # Prefer OpenDali's own stop script (clean shutdown) if we can locate it; otherwise stop the ports directly.
         $stopped = $false
-        foreach ($root in @($env:OPENDALI_ROOT, (Join-Path (Split-Path $Root) 'AI'), 'C:\ai', 'C:\OpenDali')) {
-            if ($root) { $s = Join-Path $root 'scripts\stop.ps1'; if (Test-Path $s) { & $s | Out-Null; $stopped = $true; break } }
+        # Not `$root`: PowerShell names ignore case, so that loop variable would overwrite `$Root` (OpenDante's folder).
+        foreach ($daliRoot in @($env:OPENDALI_ROOT, (Join-Path (Split-Path $Root) 'AI'), 'C:\ai', 'C:\OpenDali')) {
+            if ($daliRoot) { $s = Join-Path $daliRoot 'scripts\stop.ps1'; if (Test-Path $s) { & $s | Out-Null; $stopped = $true; break } }
         }
         if (-not $stopped) {
             foreach ($port in 8188, 3790) {
