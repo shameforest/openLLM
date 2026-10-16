@@ -131,12 +131,12 @@ $ocTarget = Join-Path $cfgDir "opencode.json"
 $ocBackup = "$ocTarget.vorher"
 $keepAnthropic = $null
 if (Test-Path $ocTarget) {
-    try { $keepAnthropic = (Get-Content -Raw $ocTarget | ConvertFrom-Json).provider.anthropic } catch {}
+    try { $keepAnthropic = (Get-Content -Raw -Encoding UTF8 $ocTarget | ConvertFrom-Json).provider.anthropic } catch {}
     Copy-Item -Force $ocTarget $ocBackup
 }
 Copy-Item -Force (Join-Path $Root "config\opencode.json") $cfgDir
 if ($keepAnthropic) {
-    $oc = Get-Content -Raw $ocTarget | ConvertFrom-Json
+    $oc = Get-Content -Raw -Encoding UTF8 $ocTarget | ConvertFrom-Json
     $oc.provider | Add-Member -NotePropertyName anthropic -NotePropertyValue $keepAnthropic -Force
     $oc | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $ocTarget
 }
@@ -155,12 +155,15 @@ Ok "OpenCode-Konfiguration geprueft (opencode models)"
 # AGENTS.md — keep the user's global-instructions block (the companion writes it) across updates
 $agTarget = Join-Path $cfgDir "AGENTS.md"
 $userBlock = ""
+# Read and write as UTF-8 explicitly: the companion writes the file without a BOM, and Windows PowerShell 5.1 would
+# read it as ANSI, so every update turned "ö" in the user's German instructions into "Ã¶" (AN-03).
+$utf8 = New-Object System.Text.UTF8Encoding($false)
 if (Test-Path $agTarget) {
-    $m = [regex]::Match((Get-Content -Raw $agTarget), '(?s)<!-- OPENDANTE-USER-START -->.*?<!-- OPENDANTE-USER-END -->')
+    $m = [regex]::Match([IO.File]::ReadAllText($agTarget, $utf8), '(?s)<!-- OPENDANTE-USER-START -->.*?<!-- OPENDANTE-USER-END -->')
     if ($m.Success) { $userBlock = "`r`n`r`n" + $m.Value + "`r`n" }
 }
 Copy-Item -Force (Join-Path $Root "config\AGENTS.md") $cfgDir
-if ($userBlock) { Add-Content -Encoding UTF8 $agTarget $userBlock }
+if ($userBlock) { [IO.File]::AppendAllText($agTarget, $userBlock, $utf8) }
 Copy-Item -Force (Join-Path $Root "config\agents\*.md") (Join-Path $cfgDir "agents")
 Copy-Item -Force (Join-Path $Root "config\commands\*.md") (Join-Path $cfgDir "commands")
 # Skills (each a folder with SKILL.md); shipped: batch-autopilot. Skills uploaded in the app also land here. The

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { type Progress, type StepSample, type TaskSample, finishStep, reduceProgress, startProgress } from './progress'
-import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
+import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionMessages, sessionStatus, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
 import { LOOP_HINT, autoDecision, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
@@ -9,7 +9,7 @@ import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
-import { type Turn, emptyTurn, produced, reduceEvent, splitThinking } from './stream'
+import { type Turn, emptyTurn, eventSession, produced, reduceEvent, splitThinking, turnFromMessages } from './stream'
 import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
@@ -38,7 +38,11 @@ import { UsageReadout } from './UsageReadout'
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
-  const [run, setRun] = useState<{ startedAt: number; turn: Turn; prog: Progress; sim?: boolean; stopped?: boolean; agent: 'plan' | 'build' } | null>(null)
+  // `gap`: the live stream was interrupted during this turn, so events may be missing (AN-05) — the answer is re-read
+  // from the server at the end and the turn is not used to learn timings.
+  const [run, setRun] = useState<{ startedAt: number; turn: Turn; prog: Progress; sim?: boolean; stopped?: boolean; gap?: boolean; agent: 'plan' | 'build' } | null>(null)
+  const runRef = useRef(run)
+  runRef.current = run
   const [todos, setTodos] = useState<Todo[]>([]) // the agent's own task list for the current chat (OD-18)
   const [ctxUsed, setCtxUsed] = useState(0)      // tokens the model read in the last step = how full its context is (OD-19)
   const [ctxNote, setCtxNote] = useState('')
@@ -195,7 +199,11 @@ export default function App() {
 
   // Feed one event into the active turn, the progress, and the pending-request lists.
   const feed = useCallback((e: OcEvent) => {
-    setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: reduceEvent(prev.turn, e), prog: reduceProgress(prev.prog, e, Date.now()) } : prev))
+    // The stream carries every session of the folder (a second window, the terminal app, a run left over from the
+    // previous chat). Only this chat's session may change the answer or end it (AN-06).
+    const sid = eventSession(e)
+    if (!sid || !sessionRef.current || sid === sessionRef.current)
+      setRun((prev) => (prev && !prev.turn.done ? { ...prev, turn: reduceEvent(prev.turn, e), prog: reduceProgress(prev.prog, e, Date.now()) } : prev))
     const p = (e.properties ?? {}) as Record<string, any>
     switch (e.type) {
       case 'permission.asked': setPerms((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p as PermissionRequest])); break
@@ -205,6 +213,25 @@ export default function App() {
       case 'todo.updated': if (p.sessionID === sessionRef.current && Array.isArray(p.todos)) setTodos(p.todos as Todo[]); break
     }
   }, [])
+
+  // Events can be missed while the stream reconnects — among them the one that ends the turn, which left the window
+  // on "läuft" forever (AN-05). So ask the server directly: is this chat's session still working? If not, the answer
+  // is read back from the stored messages and the turn ends. `afterGap`: called right after a reconnect (any age);
+  // otherwise it is the periodic watchdog, which leaves young turns alone (the server may not have started yet).
+  const resyncRun = useCallback(async (afterGap: boolean) => {
+    const r = runRef.current, sid = sessionRef.current
+    if (!r || r.turn.done || r.sim || !sid) return
+    if (afterGap) setRun((prev) => (prev && prev.startedAt === r.startedAt ? { ...prev, gap: true } : prev))
+    else if (Date.now() - r.startedAt < 15_000) return
+    let busy: boolean
+    try { const st = await sessionStatus(modes.workdir); busy = !!st[sid] && st[sid].type !== 'idle' } catch { return }
+    if (busy) return
+    let msgs: Awaited<ReturnType<typeof sessionMessages>>
+    try { msgs = await sessionMessages(sid, modes.workdir) } catch { return }
+    if (sid !== sessionRef.current) return
+    setRun((prev) => (prev && prev.startedAt === r.startedAt && !prev.turn.done
+      ? { ...prev, gap: true, turn: { ...turnFromMessages(prev.turn, msgs, prev.startedAt), done: true, retry: null } } : prev))
+  }, [modes.workdir])
 
   // Connect to the local server; retry every 5 s while it is down (it shares the GPU with OpenDali). On every (re)connect,
   // fetch any requests already waiting, so a reload or a short disconnect never leaves the agent stuck with no visible prompt.
@@ -220,14 +247,16 @@ export default function App() {
       setOnline(!!h)
       if (h) {
         disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir); syncRequests()
+        void resyncRun(true) // a turn running across a reconnect may have ended unseen
         void serverPaths().then((p) => { if (alive) { setServerDir(p.directory || ''); setSafeDirs(openCodeSafeDirs(p)) } }).catch(() => {})
       }
     })
     check()
     const id = window.setInterval(() => { if (alive && online !== true) check() }, 5000)
-    const reSync = window.setInterval(() => { if (alive && online === true) syncRequests() }, 8000) // safety net for a missed event
+    // safety net for a missed event: open requests, and a turn whose end never arrived
+    const reSync = window.setInterval(() => { if (alive && online === true) { syncRequests(); void resyncRun(false) } }, 8000)
     return () => { alive = false; disconnect(); window.clearInterval(id); window.clearInterval(reSync); simRef.current() }
-  }, [feed, online, modes.workdir])
+  }, [feed, online, modes.workdir, resyncRun])
 
   // Answer a permission request and drop it from the list.
   const answerPerm = useCallback(async (id: string, reply: 'once' | 'always' | 'reject', message?: string) => {
@@ -265,7 +294,17 @@ export default function App() {
     // The agent of the last answer counts: a plan that was switched to "build" and carried out in the same turn is no
     // longer a plan waiting for "Plan umsetzen".
     const agent = t.agent === 'plan' || t.agent === 'build' ? t.agent : run.agent
-    setMessages((m) => [...m, { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error, agent, userMsg: t.userMsg }])
+    const answer: Msg = { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error, agent, userMsg: t.userMsg }
+    setMessages((m) => [...m, answer])
+    // The stream had a gap during this turn: parts of the text may be missing — take the server's stored version.
+    if (run.gap && !run.sim && sessionRef.current) {
+      const sid = sessionRef.current, um = t.userMsg, since = run.startedAt
+      void sessionMessages(sid, modes.workdir).then((msgs) => {
+        const full = turnFromMessages(t, msgs, since)
+        setMessages((m) => m.map((x) => ((um ? x.role === 'assistant' && x.userMsg === um : x === answer)
+          ? { ...x, text: full.text, reasoning: full.reasoning, tools: full.tools, userMsg: x.userMsg ?? full.userMsg } : x)))
+      }).catch(() => { /* keep what arrived live */ })
+    }
     if (!run.sim) {
       setUsage((u) => addLocal(u, t)) // the offline preview is not real work, so it is not counted
       // How full is the model's context? The last step read everything so far (instructions + conversation).
@@ -289,7 +328,7 @@ export default function App() {
     }
     if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t)
     // Learn how long steps and tasks take on this PC (real runs only; a step cut off by "Stopp" is not a fair sample).
-    if (!run.sim && !t.error && produced(t) > 0) {
+    if (!run.sim && !run.gap && !t.error && produced(t) > 0) {
       const fin = run.stopped ? run.prog : finishStep(run.prog, Date.now())
       if (fin.done.length) {
         const steps = [...stepSamples, ...fin.done].slice(-60)

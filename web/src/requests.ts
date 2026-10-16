@@ -21,43 +21,179 @@ export function describePermission(p: PermissionRequest): { title: string; detai
 }
 
 // Never answered automatically — the user decides:
-// - uploading or throwing work away (git push / reset --hard / clean / checkout -- / restore),
+// - uploading or throwing work away (git push / reset --hard / clean / checkout -- / restore / branch -D / stash drop),
 // - deleting, also through aliases (ri, erase, rd …) and system-changing tools; most are also denied in opencode.json,
-// - "download and run" (… | iex, Invoke-Expression, curl … | sh) and interpreter one-liners (python -c, node -e,
-//   powershell -Command, cmd /c): with these any other rule can be bypassed, e.g. python -c "shutil.rmtree(…)".
+// - downloading from the internet, "download and run" (… | iex, curl … | sh), publishing packages,
+// - interpreter one-liners (python -c, node -e, powershell -Command, cmd /c): with these any other rule can be
+//   bypassed, e.g. python -c "shutil.rmtree(…)" — except the harmless ones below (OD-24).
+// The rules are checked against each part of the command in a canonical form (see `canonical`), so the way a program
+// is written does not matter: `& "C:\…\python.exe" -B -c`, `git.exe --no-pager push`, `"rm" x` (AN-04).
 const RISKY = new RegExp([
-  String.raw`\bgit\s+(-C\s+\S+\s+)?(push|reset\s+--hard|clean|checkout\s+--|restore)\b`,
-  String.raw`(^|[\s;&|(])(rm|del|erase|ri|rd|rmdir|Remove-Item|Clear-Content|Clear-RecycleBin|format|Format-Volume|mkfs|diskpart|shutdown|Stop-Computer|Restart-Computer|takeown|icacls)(\s|$)`,
-  String.raw`\breg(\.exe)?\s+(delete|add)\b|\bSet-ExecutionPolicy\b`,
-  String.raw`\b(iex|Invoke-Expression)\b|\|\s*(sh|bash|pwsh|powershell)\b`,
-  String.raw`\b(python3?|py)\s+-c\b|\bnode\s+(-e|-p|--eval|--print)\b|\b(powershell|pwsh)(\.exe)?\s+(-c\b|-Command\b|-EncodedCommand\b|-enc\b)|\bcmd(\.exe)?\s+/c\b`,
+  String.raw`\bgit\s+(push\b|reset\s+--(hard|merge|keep)\b|clean\b|checkout\s+(--|\.)(\s|$)|checkout\b[^;|&]*\s--\s|restore\b(?!\s+--staged\b)|branch\s+(-[dDfM]|--delete|--force)\b|stash\s+(drop|clear)\b|filter-branch\b|update-ref\s+-d\b|reflog\s+(expire|delete)\b)`,
+  String.raw`(^|[\s;&|(])(rm|del|erase|ri|rd|rmdir|Remove-Item|Clear-Content|Clear-RecycleBin|Format-Volume|mkfs|diskpart|shutdown|Stop-Computer|Restart-Computer|takeown|icacls|kill|spps|taskkill|Stop-Process|Stop-Service|Remove-ItemProperty|setx|netsh|schtasks|wmic|bcdedit|vssadmin|cipher)(\s|$)`,
+  String.raw`(^|[;&|(]\s*)format\s`, // "format c:" — not "npm run format" / "dotnet format"
+  String.raw`\brobocopy\b[^;|&]*\s\/(mir|purge|move?)\b|\bnet1?\s+(user|localgroup|share|stop|accounts)\b|\bsc\s+(create|delete|config|stop|failure)\s`,
+  String.raw`(\.|::)Delete\s*\(`, // [IO.File]::Delete(…), $_.Delete()
+  String.raw`\breg(\.exe)?\s+(delete|add|import|restore|load)\b|\bSet-ExecutionPolicy\b`,
+  String.raw`\b(iex|Invoke-Expression)\b|\|\s*&?\s*(sh|bash|pwsh|powershell|cmd|python3?|py|node)\b`,
+  String.raw`\b(npm|pnpm|yarn|cargo|uv)\s+publish\b|\bdotnet\s+nuget\s+push\b|\bfind\b[^;|&]*\s-(delete|exec|execdir|ok)\b`,
+  // Start-Process python x.py is just running a script (measured in the Testlauf); a shell or inline code is not
+  String.raw`\bStart-Process\b[^;|]*\b(powershell|pwsh|cmd)\b|\bStart-Process\b[^;|]*\b(python3?|py|node)\b[^;|]*["'\s](-c|-e|--eval)\b|-Verb\s+RunAs\b`,
+  String.raw`(^|[\s;&|(])(python3?|py)\s+-c\b|(^|[\s;&|(])node\s+(-e|-p|--eval|--print)\b|(^|[\s;&|(])(powershell|pwsh)\s+-Command\b|(^|[\s;&|(])cmd\s+\/c\b`,
 ].join('|'), 'i')
+// Downloading: only to a non-local address (curl http://localhost:3000 tests the agent's own server).
+const DOWNLOADER = /\b(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer|bitsadmin|certutil)\b/i
+const REMOTE_URL = /\b(https?|ftp):\/\/(?!(localhost|127\.0\.0\.1|\[::1\])([:/]|$))/i
 
+// ---- canonical form of one command part ----
+const tokens = (s: string): string[] => s.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
+/** The bare program name, however it is written: & "C:\…\Python312\python.exe" → python, git.exe → git, "rm" → rm. */
+const progName = (tok: string) => (tok.replace(/^["']|["']$/g, '').split(/[\\/]/).pop() ?? '').replace(/\.(exe|cmd|bat|com)$/i, '').toLowerCase()
+const PS_VALUE_FLAGS = /^-(ExecutionPolicy|ep|ex|WindowStyle|w|Version|v|OutputFormat|o|of|InputFormat|if|inp|ConfigurationName|config|WorkingDirectory|wd|PSConsoleFile|SettingsFile)$/i
+
+/** A command part rewritten so the rules see what actually runs: the call operator `&` and a program's folder and
+ *  `.exe` are dropped, and options that may stand before the interesting one are skipped:
+ *  `& "C:\Program Files\Python312\python.exe" -B -c "…"` → `python -c "…"`, `git --no-pager -C x push` → `git push`,
+ *  `powershell -NoProfile -EncodedCommand …` / `powershell "Remove-Item x"` → `powershell -Command`, `cmd /d /c` → `cmd /c`. */
+export function canonical(part: string): string {
+  const t = tokens(part.trim())
+  while (t[0] === '&' || t[0] === '.') t.shift()
+  if (!t.length) return ''
+  const name = progName(t[0])
+  const rest = t.slice(1)
+  if (name === 'python' || name === 'python3' || name === 'py') {
+    while (rest.length && rest[0].startsWith('-') && rest[0] !== '-c' && rest[0] !== '-m' && rest[0] !== '-') {
+      if (/^-[a-zA-Z]+c$/.test(rest[0]) && !/^-[XW]/.test(rest[0])) { rest[0] = '-c'; break } // -Bc "…" = -B -c "…"
+      rest.splice(0, /^-[XW]$/.test(rest[0]) ? 2 : 1)
+    }
+    if (rest[0] === '-') rest[0] = '-c' // `… | python -` runs code from the pipe
+  } else if (name === 'node') {
+    while (rest.length && rest[0].startsWith('-') && !/^(-e|-p|--eval|--print)$/.test(rest[0])) {
+      if (/^-(pe|ep)$/.test(rest[0])) { rest[0] = '-e'; break }
+      rest.splice(0, /^(-r|--require|--import|--loader|--experimental-loader)$/.test(rest[0]) ? 2 : 1)
+    }
+  } else if (name === 'powershell' || name === 'pwsh') {
+    let i = 0, runsCode = false, file = false
+    while (i < rest.length) {
+      const a = rest[i]
+      if (/^-(c|command|e|ec|enc|encodedcommand|cwa|commandwithargs)$/i.test(a)) { runsCode = true; break }
+      if (/^-(f|file)$/i.test(a)) { file = true; break }
+      if (!a.startsWith('-') || a === '-') { runsCode = true; break } // a bare argument is a command; "-" = code from the pipe
+      i += PS_VALUE_FLAGS.test(a) ? 2 : 1
+    }
+    return runsCode ? `${name} -Command ${rest.slice(i + 1).join(' ')}`.trim() : file ? `${name} -File ${rest.slice(i + 1).join(' ')}`.trim() : name
+  } else if (name === 'cmd') {
+    if (rest.some((a) => /^\/[ck]$/i.test(a))) return `cmd /c ${rest.filter((a) => !/^\/\w$/.test(a)).join(' ')}`.trim()
+  } else if (name === 'git') {
+    while (rest.length && rest[0].startsWith('-')) {
+      rest.splice(0, /^(-C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env)$/.test(rest[0]) ? 2 : 1)
+    }
+  }
+  return [name, ...rest].join(' ')
+}
+
+/** The parts of a command for the rules: split at ; && || | and line breaks outside quotes, each in canonical form. */
+function canonicalParts(cmd: string): string[] {
+  return (splitCommand(cmd) ?? [cmd]).flatMap((p) => splitPipes(p)).map(canonical).filter(Boolean)
+}
+const splitPipes = (s: string): string[] => {
+  const out: string[] = []
+  let cur = '', quote: string | null = null
+  for (const ch of s) {
+    if (quote) { cur += ch; if (ch === quote) quote = null; continue }
+    if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue }
+    if (ch === '|') { out.push(cur); cur = ''; continue }
+    cur += ch
+  }
+  out.push(cur)
+  return out
+}
+
+const riskyPart = (p: string) => RISKY.test(p) || (DOWNLOADER.test(p) && REMOTE_URL.test(p))
+/** Risky in any form: the raw text (catches operators across parts) or any canonical part. */
+export function risky(text: string): boolean {
+  return riskyPart(text) || canonicalParts(text).some(riskyPart)
+}
+
+// ---- paths ----
 const norm = (p: string) => p.replace(/\//g, '\\').replace(/\\+$/, '').replace(/\\\*$/, '').toLowerCase()
-const inside = (p: string, dirs: string[]) => dirs.some((d) => d && (norm(p) === norm(d) || norm(p).startsWith(norm(d) + '\\')))
+/** Resolve `.` and `..` segments, so C:\work\demo\..\..\x is judged as C:\x (AN-04). */
+const resolveDots = (p: string): string => {
+  const s = p.replace(/\//g, '\\')
+  const lead = /^(\\\\|[a-zA-Z]:\\|~\\)?/.exec(s)![0]
+  const out: string[] = []
+  for (const seg of s.slice(lead.length).split('\\')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') out.pop()
+    else out.push(seg)
+  }
+  return lead + out.join('\\')
+}
+// A drive root (or nothing) as working folder must not make every path "inside".
+const usable = (d: string) => !!d && !/^[a-z]:$/.test(norm(d))
+const inside = (p: string, dirs: string[]) => {
+  const n = norm(resolveDots(p))
+  return dirs.filter(usable).some((d) => n === norm(d) || n.startsWith(norm(d) + '\\'))
+}
 
 // An absolute path: quoted (may contain spaces, e.g. "C:\Program Files\…") or unquoted up to the next space or operator.
-const START = String.raw`(?:[a-zA-Z]:[\\/]|\\\\|~[\\/])`
+// The drive letter must not follow a letter, so "https://…" is not read as the path "s:/…".
+const START = String.raw`(?:(?<![A-Za-z0-9])[a-zA-Z]:[\\/]|\\\\|~[\\/])`
 const PATH = new RegExp(`"(${START}[^"]*)"|'(${START}[^']*)'|(${START}[^\\s"'\`;|&<>]*)`, 'g')
+// A relative path that climbs out: `..`, `..\x`, `.\..\x`; resolved against the working folder.
+const REL = /(?:^|[\s"'=(,])((?:\.[\\/])*\.\.(?:[\\/][^\s"'`;|&<>]*)?)(?=$|[\s"'`;|&<>),])/g
+// A path built from a variable ($env:USERPROFILE\…, $HOME\…, %APPDATA%\…) or a change into such a folder: its real
+// target is unknown here, so it counts as outside.
+const VAR_PATH = /(\$env:\w+|\$HOME\b|%\w+%)[\\/][^\s"'`;|&<>]*|\b(?:cd|Set-Location|sl|pushd|chdir)\s+(~|\$HOME|\$env:\w+|%\w+%)(?=$|[\s;"'])/gi
 // Starting an installed program (python.exe from Program Files, git, node …) is not access to files outside the
 // project; found in the real test (& "C:\Program Files\Python312\python.exe" zahlen.py). Its arguments are still checked.
 const PROGRAM = /\.(exe|cmd|bat|com)$/i
 const PROGRAM_DIRS = /^(c:\\program files( \(x86\))?|c:\\windows|c:\\python\d*)\\|\\appdata\\local\\programs\\/
 
-/** Absolute paths in a command (C:\…, \\server\…, ~\…) that are NOT inside the working folder or another safe folder
- *  (OpenCode's own data folder, where plan mode stores its plans). Installed programs are ignored. */
-export function pathsOutside(text: string, workdir: string, safe: string[] = []): string[] {
-  const found = [...text.matchAll(PATH)].map((m) => m[1] ?? m[2] ?? m[3])
-  return found.filter((p) => !inside(p, [workdir, ...safe]) && !(PROGRAM.test(p) && PROGRAM_DIRS.test(norm(p))))
+const CD = /^(?:cd|Set-Location|sl|pushd|chdir)(?:\s+-(?:Path|LiteralPath))?\s+(["']?)([^"';|&]+?)\1\s*$/i
+
+/** Relative paths that climb above the working folder, read part by part like the shell does: `cd src; type ..\a.txt`
+ *  stays inside, `cd ..; dir` does not. After a change into a folder named by a variable ($orig) the position is
+ *  unknown, and the parts after it are not judged (measured in the Testlauf: Set-Location $orig; … Set-Location ..\..). */
+function climbsOut(text: string, workdir: string, safe: string[]): string[] {
+  const dirs = [workdir, ...safe]
+  const found: string[] = []
+  let cwd = workdir
+  let known = usable(workdir)
+  for (const part of splitCommand(text) ?? [text]) {
+    const cd = CD.exec(part.trim())
+    if (cd) {
+      const t = cd[2].trim()
+      if (/^[a-zA-Z]:[\\/]|^\\\\/.test(t)) { cwd = t; known = true } // absolute: judged by PATH
+      else if (/[$%~]/.test(t)) known = false // variable or home: VAR_PATH judges the target itself
+      else if (known) { cwd = resolveDots(`${cwd}\\${t}`); if (!inside(cwd, dirs)) found.push(t) }
+      continue
+    }
+    if (!usable(workdir)) { found.push(...[...part.matchAll(REL)].map((m) => m[1])); continue }
+    if (!known) continue
+    for (const m of part.matchAll(REL)) if (!inside(`${cwd}\\${m[1]}`, dirs)) found.push(m[1])
+  }
+  return found
 }
 
-/** OpenCode's own data and state folders (from GET /path), e.g. …\.local\share\opencode\plans for plan mode, and its
- *  scratch folder %TEMP%\opencode, where the agent puts test output (measured: 3 of 11 asks in the hard Testlauf). Its
- *  config folder is deliberately NOT included: there the agent could change its own permissions. */
+/** Paths in a command that are NOT inside the working folder or another safe folder (OpenCode's plans and tool-output
+ *  folders): absolute ones (C:\…, \\server\…, ~\…) after resolving `..`, relative ones that climb above the working
+ *  folder, and variable-based ones. Installed programs are ignored. */
+export function pathsOutside(text: string, workdir: string, safe: string[] = []): string[] {
+  const abs = [...text.matchAll(PATH)].map((m) => m[1] ?? m[2] ?? m[3])
+    .filter((p) => !inside(p, [workdir, ...safe]) && !(PROGRAM.test(p) && PROGRAM_DIRS.test(norm(p))))
+  const vars = [...text.matchAll(VAR_PATH)].map((m) => m[0])
+  return [...abs, ...climbsOut(text, workdir, safe), ...vars]
+}
+
+/** OpenCode's own folders the agent may use (from GET /path): its state folder, the plans folder of plan mode, the
+ *  tool-output folder (where OpenCode saves a long command output and tells the agent to read it), and its scratch
+ *  folder %TEMP%\opencode (measured: 3 of 11 asks in the hard Testlauf). NOT the whole data folder (it also holds the
+ *  session database and snapshots) and NOT the config folder (there the agent could change its own permissions). */
 export function openCodeSafeDirs(paths: { state?: string; home?: string } | null): string[] {
   if (!paths?.state) return []
   const data = paths.state.replace(/([\\/])state([\\/])opencode$/i, '$1share$2opencode')
-  const dirs = data !== paths.state ? [paths.state, data] : [paths.state]
+  const dirs = data !== paths.state ? [paths.state, `${data}\\plans`, `${data}\\tool-output`] : [paths.state]
   if (paths.home && /^[a-z]:\\/i.test(paths.home)) dirs.push(`${paths.home}\\AppData\\Local\\Temp\\opencode`)
   return dirs
 }
@@ -68,9 +204,14 @@ export function openCodeSafeDirs(paths: { state?: string; home?: string } | null
 // code, and the code must not contain the quote character (that would end the string and append another command).
 // Every write/delete/network/process/dynamic-code call and shell expansion ($( ), ${ }, backticks) makes it ask
 // again. False alarms only cost a question.
+// Both are tested against the canonical form of a part, so `python.exe -B -c "…"` is judged like `python -c "…"`.
 const ONE_LINER = /^(?:(?:python3?|py)\s+-c|node\s+(?:-e|-p|--eval|--print))\s+(["'])([\s\S]*)\1$/i
-const INTERPRETER = /^(?:(?:python3?|py)\s+-c|node\s+(?:-e|-p|--eval|--print))\b/i
+const INTERPRETER = /^(?:(?:python3?|py)\s+-c|node\s+(?:-e|-p|--eval|--print))(\s|$)/i
 const ONE_LINER_DANGER = new RegExp([
+  // imports that hide a dangerous call behind another name: from os import remove as r; getattr(os, 'remove')
+  String.raw`\bfrom\s+(os|shutil|subprocess|pathlib|socket|sys)\b[\w.]*\s+import\b|\b(getattr|operator)\b`,
+  String.raw`\.open\s*\(\s*['"][rbt]*[wax+]`, // Path('a').open('w')
+  String.raw`\b(sqlite3|zipfile|tarfile|runpy|fetch)\b`,
   // open(…, 'w' / 'a' / 'x' / '+') as 2nd argument or mode=…; a file NAME with an "a" in it is no write (false alarm
   // measured in the hard Testlauf: open('aufgaben.json', encoding='utf-8'))
   String.raw`\bopen\s*\(\s*[^,()]+,\s*['"][rbt]*[wax+][rwabxt+]*['"]|\bmode\s*=\s*['"][rbt]*[wax+]`,
@@ -118,9 +259,13 @@ const oneLinerOk = (part: string): boolean => {
 /** A command with at least one interpreter one-liner, where every one-liner only imports, computes and prints and
  *  every other part is not on the risky list — runs on its own like any harmless command. */
 export function harmlessOneLiner(command: string): boolean {
-  const parts = splitCommand(command)
-  if (!parts || !parts.some((p) => INTERPRETER.test(p))) return false
-  return parts.every((p) => (INTERPRETER.test(p) ? oneLinerOk(p) : !RISKY.test(p)))
+  const split = splitCommand(command)
+  if (!split) return false
+  // Text piped into a shell or interpreter is code too (`… | powershell -`, `… | python -`): never harmless.
+  if (split.some((p) => splitPipes(p).slice(1).some((s) => /^(python3?|py|node|powershell|pwsh|cmd|sh|bash|iex|invoke-expression)\b/.test(canonical(s))))) return false
+  const parts = split.flatMap(splitPipes).map(canonical).filter(Boolean)
+  if (!parts.some((p) => INTERPRETER.test(p))) return false
+  return parts.every((p) => (INTERPRETER.test(p) ? oneLinerOk(p) : !riskyPart(p)))
 }
 
 /** Message sent with an automatic "no" to a loop, so the model changes course instead of trying the same again. */
@@ -130,25 +275,34 @@ export const LOOP_HINT =
 
 /** What the automatic mode does with a request: allow it once, turn a loop around, or leave it to the user (null).
  *  Work inside the working folder runs on its own; anything outside it, and anything on the risky list, asks. */
+// Kinds of requests the automatic mode may answer at all. Anything else — a kind a newer OpenCode adds — asks (AN-04).
+const KNOWN = new Set(['bash', 'edit', 'write', 'patch', 'multiedit', 'read', 'glob', 'grep', 'list', 'skill', 'todowrite', 'todoread', 'webfetch', 'websearch'])
+
 export function autoDecision(p: PermissionRequest, workdir = '', safe: string[] = []): { reply: 'once' } | { reply: 'reject'; message: string } | null {
   if (p.permission === 'doom_loop') return { reply: 'reject', message: LOOP_HINT }
-  const text = `${str(p.metadata?.command)} ${(p.patterns ?? []).join(' ')}`
+  const command = str(p.metadata?.command)
   if (p.permission === 'external_directory') {
-    // Outside the project folder the user decides — except OpenCode's own data folder (plan mode stores plans there).
+    // Outside the project folder the user decides — except OpenCode's own folders (plans, tool output, scratch).
     const targets = [...(p.patterns ?? []), str(p.metadata?.filepath), str(p.metadata?.directory)].filter(Boolean)
     return targets.length > 0 && targets.every((t) => inside(t, safe)) ? { reply: 'once' } : null
   }
-  if (p.permission === 'bash' && harmlessOneLiner(str(p.metadata?.command)) && pathsOutside(text, workdir, safe).length === 0) return { reply: 'once' }
-  if (RISKY.test(text)) return null
-  if (p.permission === 'bash' && pathsOutside(text, workdir, safe).length > 0) return null
+  if (!KNOWN.has(p.permission)) return null
+  // The whole command line is read in order (a `cd` changes what `..` means); the patterns OpenCode adds are single
+  // commands without that context, so only their absolute and variable paths count.
+  const outside = pathsOutside(command || (p.patterns ?? []).join('; '), workdir, safe).length > 0 ||
+    (command !== '' && pathsOutside((p.patterns ?? []).join(' ').replace(REL, ' '), workdir, safe).length > 0)
+  if (p.permission === 'bash' && harmlessOneLiner(command) && !outside) return { reply: 'once' }
+  if ([command, ...(p.patterns ?? [])].some(risky)) return null
+  if (outside) return null
   return { reply: 'once' }
 }
 
 /** Why a request was left to the user — shown on the card so it is clear it was not forgotten. */
 export function whyAsked(p: PermissionRequest, workdir = '', safe: string[] = []): string {
   if (p.permission === 'external_directory') return 'Zugriff außerhalb des Arbeitsordners entscheidest du.'
-  const text = `${str(p.metadata?.command)} ${(p.patterns ?? []).join(' ')}`
-  if (RISKY.test(text)) return 'Hochladen, Löschen, Herunterladen-und-Ausführen und Programm-Einzeiler, die schreiben oder löschen, fragen immer nach.'
-  if (p.permission === 'bash' && pathsOutside(text, workdir, safe).length > 0) return 'Der Befehl greift auf einen Ort außerhalb des Arbeitsordners zu.'
+  if (p.permission !== 'doom_loop' && !KNOWN.has(p.permission)) return 'Diese Art Anfrage kennt der Automatikmodus nicht – du entscheidest.'
+  const command = str(p.metadata?.command)
+  if (pathsOutside(command || (p.patterns ?? []).join('; '), workdir, safe).length > 0) return 'Der Befehl greift auf einen Ort außerhalb des Arbeitsordners zu.'
+  if ([command, ...(p.patterns ?? [])].some(risky)) return 'Hochladen, Löschen, Herunterladen und Programm-Einzeiler, die schreiben oder löschen, fragen immer nach.'
   return ''
 }

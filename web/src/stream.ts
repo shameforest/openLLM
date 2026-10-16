@@ -54,6 +54,39 @@ function errorText(p: Record<string, any>): string {
   return /model .* not found/i.test(msg) ? `${msg} — das Modell ist noch nicht heruntergeladen: Einstellungen → Updates → „Modelle aktualisieren“.` : msg
 }
 
+/** The session an event belongs to (OpenCode puts it on the event, its `info` or its `part`); '' if it has none. */
+export function eventSession(e: OcEvent): string {
+  const p = (e.properties ?? {}) as Record<string, any>
+  const sid = p.sessionID ?? p.info?.sessionID ?? p.part?.sessionID
+  return typeof sid === 'string' ? sid : ''
+}
+
+export type StoredMessage = { info: Record<string, any>; parts: Record<string, any>[] }
+
+/** Rebuild a turn from the messages the server stored (GET /session/{id}/message) — for when the live stream had a
+ *  gap and events, possibly the end, were missed (AN-05). The turn = its first user message and everything after it;
+ *  if that id never arrived, the first user message created since `since` (ms). Text and thinking come from the parts'
+ *  final text; tools, tokens and agent go through the same reducer as live events. */
+export function turnFromMessages(turn: Turn, msgs: StoredMessage[], since: number): Turn {
+  let start = turn.userMsg ? msgs.findIndex((m) => m.info?.id === turn.userMsg) : -1
+  if (start < 0) start = msgs.findIndex((m) => m.info?.role === 'user' && num(m.info?.time?.created) >= since - 5000)
+  if (start < 0) return turn
+  let t: Turn = { ...turn, segs: [], kinds: {}, tools: [], perMsg: {}, usage: null }
+  const ev = (type: string, properties: Record<string, unknown>): OcEvent => ({ id: 'sync', type, properties })
+  for (const m of msgs.slice(start)) {
+    t = reduceEvent(t, ev('message.updated', { info: m.info }))
+    if (m.info?.role !== 'assistant') continue
+    for (const part of m.parts ?? []) {
+      t = reduceEvent(t, ev('message.part.updated', { part }))
+      if ((part.type === 'text' || part.type === 'reasoning') && typeof part.text === 'string' && part.text)
+        t = reduceEvent(t, ev('message.part.delta', { partID: part.id, field: 'text', delta: part.text }))
+    }
+    const err = m.info?.error
+    if (err && err.name !== 'MessageAbortedError' && !t.error) t = { ...t, error: errorText({ error: err }) }
+  }
+  return t
+}
+
 export function reduceEvent(turn: Turn, e: OcEvent): Turn {
   const p = (e.properties ?? {}) as Record<string, any>
   switch (e.type) {

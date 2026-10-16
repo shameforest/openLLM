@@ -44,10 +44,14 @@
       "ls*": "allow", "dir*": "allow", "cat *": "allow", "type *": "allow", "grep *": "allow", "rg *": "allow", "find *": "allow", "echo *": "allow", "tree*": "allow", "pwd*": "allow", "head *": "allow", "tail *": "allow", "which *": "allow", "where *": "allow",
       "Get-ChildItem*": "allow", "Get-Content*": "allow", "Test-Path*": "allow", "Select-String*": "allow", "Select-Object*": "allow", "Where-Object*": "allow", "ForEach-Object*": "allow", "Measure-Object*": "allow", "Sort-Object*": "allow", "Get-Command*": "allow", "Get-Location*": "allow", "Resolve-Path*": "allow", "Out-String*": "allow", "Format-Table*": "allow", "Format-List*": "allow", "Write-Output*": "allow", "Write-Host*": "allow",
       "mkdir *": "allow", "New-Item*": "allow", "md *": "allow",
-      "git status": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git add*": "allow", "git commit*": "allow", "git branch*": "allow", "git checkout -b*": "allow", "git stash*": "allow", "git restore --staged*": "allow",
+      "git status": "allow", "git diff*": "allow", "git log*": "allow", "git show*": "allow", "git add*": "allow", "git commit*": "allow", "git branch*": "allow", "git checkout -b*": "allow", "git stash*": "allow",
       "npm *": "allow", "npx *": "allow", "node *": "allow", "pnpm *": "allow", "yarn *": "allow", "python *": "allow", "python3 *": "allow", "py *": "allow", "pytest*": "allow", "pip *": "allow", "uv *": "allow", "cargo *": "allow", "go *": "allow", "dotnet *": "allow", "ollama list*": "allow", "ollama show*": "allow",
       "python -c*": "ask", "python3 -c*": "ask", "py -c*": "ask", "node -e*": "ask", "node --eval*": "ask", "node -p*": "ask", "powershell*": "ask", "pwsh*": "ask", "cmd /c*": "ask", "Invoke-Expression*": "ask", "iex *": "ask",
-      "git push*": "ask", "git reset --hard*": "ask", "git clean*": "ask", "git checkout -- *": "ask", "git restore *": "ask",
+      "python * -c*": "ask", "python3 * -c*": "ask", "py * -c*": "ask", "python - *": "ask", "node * -e*": "ask", "node * -p*": "ask", "node * --eval*": "ask", "node * --print*": "ask",
+      "find * -delete*": "ask", "find * -exec*": "ask", "npm publish*": "ask", "pnpm publish*": "ask", "yarn publish*": "ask", "cargo publish*": "ask", "uv publish*": "ask", "dotnet nuget push*": "ask",
+      "git push*": "ask", "git reset --hard*": "ask", "git reset --keep*": "ask", "git reset --merge*": "ask", "git clean*": "ask", "git checkout -- *": "ask", "git restore *": "ask",
+      "git branch -D*": "ask", "git branch -d*": "ask", "git branch --delete*": "ask", "git branch -f*": "ask", "git branch -M*": "ask", "git stash drop*": "ask", "git stash clear*": "ask",
+      "git restore --staged*": "allow",
       "rm *": "deny", "del *": "deny", "erase *": "deny", "ri *": "deny", "rmdir *": "deny", "rd *": "deny", "Remove-Item*": "deny", "Clear-Content*": "deny", "format *": "deny", "mkfs*": "deny", "Stop-Computer*": "deny", "Restart-Computer*": "deny", "shutdown*": "deny"
     }
   },
@@ -55,7 +59,8 @@
     "plan": {
       "permission": {
         "edit": { "*": "deny", "*opencode\\plans\\*.md": "allow", "*opencode/plans/*.md": "allow" },
-        "bash": { "*": "ask", "git diff*": "allow", "git log*": "allow", "git status": "allow", "grep *": "allow", "rg *": "allow", "cat *": "allow", "ls*": "allow", "dir*": "allow", "Get-ChildItem*": "allow", "Get-Content*": "allow" }
+        "bash": { "*": "ask", "git diff*": "allow", "git log*": "allow", "git status": "allow", "grep *": "allow", "rg *": "allow", "cat *": "allow", "ls*": "allow", "dir*": "allow", "Get-ChildItem*": "allow", "Get-Content*": "allow",
+          "rm *": "deny", "del *": "deny", "erase *": "deny", "ri *": "deny", "rmdir *": "deny", "rd *": "deny", "Remove-Item*": "deny", "Clear-Content*": "deny", "format *": "deny", "Stop-Computer*": "deny", "Restart-Computer*": "deny", "shutdown*": "deny" }
       }
     }
   }

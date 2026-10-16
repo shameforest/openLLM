@@ -12,13 +12,14 @@ Verbesserer-Lauf 3 ist umgesetzt und gemessen. Ohne Nachdenken löst OpenDante d
 ## Gerade
 - [ ] (du) OpenDante im Alltag ausprobieren: große Aufträge, Dateien anhängen
 ## Als Nächstes
-- [ ] Wichtigste Befunde der Gesamtanalyse beheben: Absturz des Begleitdienstes (AN-01), Umlaute im Installer (AN-03), Lücken beim automatischen Erlauben (AN-04), hängende Anzeige „läuft“ (AN-05)
+- [ ] Nächste Befunde der Gesamtanalyse: Claude-Schlüssel kann beim Speichern verloren gehen (AN-09), Ordnerwechsel stoppt laufende Arbeit nicht (AN-07)
 - [ ] M3: Browser-Tests über Playwright-MCP für den Agenten einschalten
 - [ ] M3: Abschottung (Sandbox) prüfen
 - [ ] Neuer Verbesserer-Lauf nach einer Woche Alltag
 ## Lernen
 - [ ] Was Git-Schnappschüsse sind und warum „Rückgängig“ sie braucht
 ## Erledigt
+- [x] 2026-10-16: Begleitdienst absturzfest, Umlaute im Installer, Lücken beim automatischen Erlauben geschlossen, hängende Anzeige „läuft“ behoben
 - [x] 2026-10-16: Gesamtanalyse aller Funktionen → Karte docs/ARCHITEKTUR.md mit 24 Befunden; Startfehler nach „OpenDali beenden? Ja“ behoben
 - [x] 2026-10-16: Modell-Vorladen mit Ladebalken am Shadow-PC bewiesen (38 s, danach sofort bereit); verwaiste Ollama-Prozesse räumt der Start jetzt weg
 - [x] 2026-10-15: „Schnell“ als Standard: umsetzen ohne Nachdenken (12/12, 2,3× schneller)

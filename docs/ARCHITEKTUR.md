@@ -185,9 +185,11 @@ path traversal found.
    absolute path outside the working folder → ask; **everything else → allow** (incl. unknown permission types).
    The Testlauf uses the same function.
 
-Known holes (AN-04): both layers match on the literal start of the command, so `python.exe -c …`, `python -B -c …`,
-`git --no-pager push`, `powershell -NoProfile -EncodedCommand …`, `robocopy … /MIR`, `..`-paths, relative and
-`$env:` paths pass without a question **[verified for the first four via autoDecision / config simulation]**.
+Since 2026-10-16 (AN-04) layer 2 judges each part of a command in a **canonical form** (`canonical()`: `& "C:\…\python.exe" -B -c` →
+`python -c`, `git --no-pager push` → `git push`, `powershell -NoProfile -EncodedCommand` → `powershell -Command`), resolves `..`,
+reads `cd` in order, treats `$env:`/`$HOME` paths as outside, asks for unknown request kinds, and the safe dirs are only
+OpenCode's `plans`, `tool-output`, state and `%TEMP%\opencode` folders. Layer 1 passes variants like `python -B -c` on to
+layer 2 (`python * -c*` ask). Regression check: `requests.test.ts` (27 tests) + 142 real agent commands from the session DB.
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -212,7 +214,7 @@ hidden inputs and reference models. **Pitfalls:** default `--base` is the live 4
 variant = thinking ON (the app default is off → pass `--variant ohne-denken`); a timed-out run still counts as solved
 if its files are right; 12/12 vs 9/12 is p≈0.11, not significant.
 
-Tests: `npm test` in `web/` = 17 files, 129 Vitest [verified 2026-10-16]; `node companion/test.mjs` = 47 checks
+Tests: `npm test` in `web/` = 17 files, 147 Vitest [verified 2026-10-16]; `node companion/test.mjs` = 52 checks
 [verified]; `npm run e2e` = 8-step smoke with mocked servers in system Chrome. Untested: every component except
 FilePicker, the stores, Claude request bodies, `autoDecision` for non-bash types and the hole classes above.
 
@@ -225,12 +227,12 @@ Status: open unless marked. Details and line numbers: `docs/analyse/2026-10-16/<
 ### P1 — can break the app, lose data or run unwanted commands
 | ID | Finding | Evidence |
 |---|---|---|
-| AN-01 | **Companion dies on one malformed URL** (`GET /%` or `//`): `decodeURIComponent`/`new URL` throw outside the try, unhandled rejection ends Node; UI dead until next start. Any web page could fire it (no-Origin GETs are allowed). Fix: parse inside try, `await serveStatic`, `process.on('unhandledRejection')`, Host-header allow-list. | [verified] throwaway companion :4297 (C-F3, C-F4) |
+| AN-01 | ~~**Companion dies on one malformed URL**~~ **Fixed 2026-10-16**: URL parsed inside try, `/%` → 400, Host-header allow-list, unhandled-rejection guard, stream/spawn error handlers; 5 new checks in `companion/test.mjs` (fail on the old server). Was: (`GET /%` or `//`): `decodeURIComponent`/`new URL` throw outside the try, unhandled rejection ends Node; UI dead until next start. Any web page could fire it (no-Origin GETs are allowed). Fix: parse inside try, `await serveStatic`, `process.on('unhandledRejection')`, Host-header allow-list. | [verified] throwaway companion :4297 (C-F3, C-F4) |
 | AN-02 | ~~`start.ps1` loop variable `$root` overwrote `$Root` → after "Ja" in the OpenDali dialog the app never opened.~~ **Fixed 2026-10-16** (renamed `$daliRoot`). | [verified] PS 5.1 probe (C-F1) |
-| AN-03 | `install.ps1` garbles umlauts in the user's global-instructions block on every install/update (`Get-Content -Raw` reads BOM-less UTF-8 as ANSI). Fix: `-Encoding UTF8`. | [verified by agent probe] (C-F2) |
-| AN-04 | Auto-allow / config holes: interpreter or git with `.exe`, full path, or a flag before `-c`/`push`; `powershell -NoProfile -EncodedCommand`; `robocopy /MIR`, `net user`, `setx`, `taskkill`; `..`/relative/`$env:` paths; one-liner denylist bypass (`from os import remove as r`); `find -delete`, `npm publish`, `git branch -D` allowed by config; whole OpenCode data dir counted as safe; unknown permission types allowed. Fix: normalise the program token (strip quotes/path/.exe, skip flags), resolve `..`, treat relative paths with `..` and `$env:`/`$HOME` as outside, extend RISKY, fail closed for unknown types, narrow config allows. | [verified] sample (B-F1..F10, D-F-A2..A6) |
-| AN-05 | UI can hang on "läuft" forever after an SSE gap: events during the reconnect (incl. idle) are lost, only permissions are re-synced. Fix: on reconnect call `GET /session/status` (+ messages) for the active session. | [code] (A-F1) |
-| AN-06 | No session filter on events: another session in the same folder (TUI, second window, a run left over after a folder change) feeds text into / ends the current turn; its permission cards show up too. | [code] (A-F2) |
+| AN-03 | ~~`install.ps1` garbles umlauts~~ **Fixed 2026-10-16** (reads/appends AGENTS.md as UTF-8 via .NET; 3 simulated runs keep äöüß). Was: `install.ps1` garbles umlauts in the user's global-instructions block on every install/update (`Get-Content -Raw` reads BOM-less UTF-8 as ANSI). Fix: `-Encoding UTF8`. | [verified by agent probe] (C-F2) |
+| AN-04 | **Fixed 2026-10-16** (`requests.ts` judges a canonical form of every command part: program name without path/.exe/quotes, interpreter/git options skipped, PowerShell/cmd code detection; `..` resolved, relative `..` read in `cd` order, `$env:`/`$HOME` paths outside; drive-root workdir no longer contains everything; downloads from non-local URLs, publish, robocopy /MIR, net/netsh/setx/taskkill … ask; safe dirs narrowed to `plans` + `tool-output`; unknown permission kinds ask; config asks for `python * -c`, `git branch -D`, `find -delete`, `npm publish`, plan agent denies deletes). Checked on 142 real agent commands: 3 decisions changed, all intended. Was: Auto-allow / config holes: interpreter or git with `.exe`, full path, or a flag before `-c`/`push`; `powershell -NoProfile -EncodedCommand`; `robocopy /MIR`, `net user`, `setx`, `taskkill`; `..`/relative/`$env:` paths; one-liner denylist bypass (`from os import remove as r`); `find -delete`, `npm publish`, `git branch -D` allowed by config; whole OpenCode data dir counted as safe; unknown permission types allowed. Fix: normalise the program token (strip quotes/path/.exe, skip flags), resolve `..`, treat relative paths with `..` and `$env:`/`$HOME` as outside, extend RISKY, fail closed for unknown types, narrow config allows. | [verified] sample (B-F1..F10, D-F-A2..A6) |
+| AN-05 | **Fixed 2026-10-16**: after every reconnect and every 8 s (turns older than 15 s) the UI asks `GET /session/status`; an idle session is rebuilt from `GET /session/{id}/message` (`turnFromMessages`) and ended; a turn with a gap re-reads its final text and is not learned from. Verified on a real stored session (48 messages). Was: UI can hang on "läuft" forever after an SSE gap: events during the reconnect (incl. idle) are lost, only permissions are re-synced. Fix: on reconnect call `GET /session/status` (+ messages) for the active session. | [code] (A-F1) |
+| AN-06 | **Partly fixed 2026-10-16**: events of other sessions no longer change or end the current turn (`eventSession`); permission cards of other sessions still show. Was: No session filter on events: another session in the same folder (TUI, second window, a run left over after a folder change) feeds text into / ends the current turn; its permission cards show up too. | [code] (A-F2) |
 | AN-07 | Folder change and deleting the active chat start a new chat without aborting the running server session (it keeps writing files). Stop marks the turn only after `abort()` returns, so idle can win the race → cut-off turn learned as normal and sent to Claude. | [code] (A-F3, A-F4) |
 | AN-08 | While `online` is still `null` (first seconds) or after any SSE blip, a sent message runs the canned demo text instead of the model; with Offload/Audit + key, that demo text is sent to Claude (paid). | [code] (A-F5, A-F9, B-F19) |
 | AN-09 | Claude key can be wiped: "Speichern"/"Verbindung testen" send the localStorage copy; empty → companion deletes `claude-key.json` (e.g. new Chrome profile, or `localhost` vs `127.0.0.1` origin). Key also sits in plaintext in localStorage. | [code] (B-F24, B-F25, C-F9) |

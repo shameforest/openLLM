@@ -1,6 +1,8 @@
 // Self-contained check of the companion's file-writing endpoints. Run: node companion/test.mjs
 import { execFileSync, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import http from 'node:http'
+import net from 'node:net'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +11,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const cfg = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-'))
 const proj = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-proj-'))
 const data = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-data-'))
-const PORT = 4096 + Math.floor(Math.random() * 500) + 50
+// A port the OS reports free — never a fixed range, which could hit a running test companion (4197) and write into
+// its real data folder.
+const PORT = await new Promise((resolve) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)) }) })
+// A raw request, so the test can send what fetch() would clean up: a malformed path or a foreign Host header.
+const raw = (p, headers = {}) => new Promise((resolve) => {
+  const r = http.get({ host: '127.0.0.1', port: PORT, path: p, headers }, (res) => { res.resume(); resolve(res.statusCode) })
+  r.on('error', () => resolve(0))
+})
 const srv = spawn(process.execPath, [path.join(HERE, 'server.mjs')], {
   env: { ...process.env, OPENCODE_CONFIG_DIR: cfg, OPENDANTE_COMPANION_PORT: String(PORT), OPENDANTE_PROJECTS: proj, OPENDANTE_DATA: data },
   stdio: 'ignore',
@@ -34,6 +43,13 @@ try {
   ok(own.status === 200 && own.headers.get('access-control-allow-origin') === base, 'the app itself (own origin) is allowed and gets CORS')
   const pre = await fetch(base + '/skills', { method: 'OPTIONS', headers: { origin: 'https://evil.example.com', 'access-control-request-method': 'POST' } })
   ok(pre.status === 403, 'a foreign CORS preflight is refused')
+
+  // A malformed address used to end the whole process (AN-01).
+  ok(await raw('/%') === 400, 'a malformed path ("/%") is answered with 400')
+  ok(await raw('/%zz.js') === 400, 'a malformed path with an extension is answered with 400')
+  ok([200, 400, 404].includes(await raw('//')), 'a path starting with "//" gets an answer')
+  ok(await raw('/health', { host: 'evil.example:80' }) === 403, 'a foreign Host header (DNS rebinding) is refused')
+  ok((await fetch(base + '/health')).ok, 'the companion is still alive after the bad requests')
 
   await post('/settings', { globalInstructions: 'Antworte knapp.', apiKey: 'sk-ant-x', claudeModel: 'claude-opus-5-5' })
   const agents = await fs.readFile(path.join(cfg, 'AGENTS.md'), 'utf8')

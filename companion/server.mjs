@@ -179,6 +179,7 @@ function runUpdate(kind, model) {
   if (kind === 'models') { cmd = 'ollama'; args = ['pull', model || MODEL] }
   else { cmd = 'powershell.exe'; args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `Set-Location '${ROOT}'; git pull; ./scripts/install.ps1 -SkipModel`] }
   const child = spawn(cmd, args, { detached: true, stdio: 'ignore', cwd: ROOT })
+  child.on('error', (e) => console.error(`${cmd} konnte nicht starten:`, e.message)) // e.g. ollama not on PATH
   child.unref()
   return { started: true }
 }
@@ -423,8 +424,9 @@ async function testClaude(model) {
 }
 
 // ---- static web UI ----
-async function serveStatic(req, res) {
-  let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
+async function serveStatic(url, res) {
+  let rel
+  try { rel = decodeURIComponent(url.pathname) } catch { res.writeHead(400); return res.end() } // e.g. "/%": not a path
   if (rel === '/' || !path.extname(rel)) rel = '/index.html' // SPA fallback
   const file = path.join(DIST, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''))
   if (!file.startsWith(DIST)) { res.writeHead(403); return res.end() }
@@ -432,16 +434,25 @@ async function serveStatic(req, res) {
     const stat = await fs.stat(file)
     if (!stat.isFile()) throw new Error('dir')
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' })
-    createReadStream(file).pipe(res)
+    // A file that vanishes between stat and read (an update rebuilding web/dist) must not take the service down.
+    createReadStream(file).on('error', () => res.destroy()).pipe(res)
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain' })
     res.end('web/dist fehlt — bitte scripts/install.ps1 ausführen (baut die Oberfläche).')
   }
 }
 
+// The Host header must name this service. A web page that points its own domain name at 127.0.0.1 ("DNS rebinding")
+// would otherwise count as same-origin, send no Origin header on GET and could read chats, folders and skills.
+const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`])
+const hostOk = (req) => HOSTS.has(String(req.headers.host || '').toLowerCase())
+
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x')
+  let url
+  // A malformed address (e.g. "//" or "/%") used to throw outside any try and end the whole process (AN-01).
+  try { url = new URL(req.url, 'http://x') } catch { return sendJson(res, 400, { error: 'Ungültige Adresse.' }) }
   res.cors = corsFor(req)
+  if (!hostOk(req)) return sendJson(res, 403, { error: 'Fremder Hostname abgelehnt.' })
   if (!originOk(req)) return sendJson(res, 403, { error: 'Fremde Herkunft abgelehnt.' })
   if (req.method === 'OPTIONS') { res.writeHead(204, res.cors); return res.end() }
   if (req.method === 'POST' && !String(req.headers['content-type'] || '').startsWith('application/json')) {
@@ -476,11 +487,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
     if (req.method === 'POST' && url.pathname === '/update/models') { const b = await readBody(req); return sendJson(res, 200, runUpdate('models', b.model)) }
-    if (req.method === 'GET') return serveStatic(req, res)
+    if (req.method === 'GET') return await serveStatic(url, res)
     sendJson(res, 404, { error: 'not found' })
   } catch (e) {
+    if (res.headersSent) return res.destroy()
     sendJson(res, 400, { error: String(e && e.message || e) })
   }
 })
+
+// Last line of defence: the companion runs hidden and nothing restarts it until the next launch, so one unexpected
+// error must cost one request, not the whole app window.
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e))
+process.on('uncaughtException', (e) => console.error('uncaughtException:', e))
 
 server.listen(PORT, '127.0.0.1', () => console.log(`OpenDante companion on http://127.0.0.1:${PORT} (UI from ${DIST}, config ${CFG})`))

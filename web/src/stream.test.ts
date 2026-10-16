@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OcEvent } from './api'
-import { emptyTurn, produced, reduceEvent, type Turn } from './stream'
+import { emptyTurn, eventSession, produced, reduceEvent, turnFromMessages, type Turn } from './stream'
 
 const ev = (type: string, properties: Record<string, unknown> = {}): OcEvent => ({ id: 'evt', type, properties })
 const run = (events: OcEvent[], start: Turn = emptyTurn()): Turn => events.reduce(reduceEvent, start)
@@ -126,5 +126,43 @@ describe('reduceEvent', () => {
     expect(t.tools).toEqual([{ id: 't1', tool: 'write', status: 'completed', title: undefined }])
     expect(t.usage).toEqual({ input: 50, output: 20 })
     expect(t.done).toBe(true)
+  })
+})
+
+describe('re-reading a turn after the live stream had a gap (AN-05)', () => {
+  const msgs = [
+    { info: { id: 'msg_old', role: 'user', time: { created: 1000 } }, parts: [{ id: 'p0', type: 'text', text: 'alte Frage' }] },
+    { info: { id: 'msg_a0', role: 'assistant', time: { created: 1100 }, tokens: { input: 50, output: 5, reasoning: 0, cache: { read: 0, write: 0 } } }, parts: [{ id: 'p1', type: 'text', text: 'alte Antwort' }] },
+    { info: { id: 'msg_u1', role: 'user', time: { created: 20_000 } }, parts: [{ id: 'p2', type: 'text', text: 'Lege rechner.py an' }] },
+    { info: { id: 'msg_a1', role: 'assistant', agent: 'build', time: { created: 20_100 }, tokens: { input: 100, output: 20, reasoning: 0, cache: { read: 900, write: 0 } } },
+      parts: [{ id: 'r1', type: 'reasoning', text: 'Ich überlege.' }, { id: 't1', type: 'tool', tool: 'write', state: { status: 'completed', title: 'rechner.py' } }] },
+    { info: { id: 'msg_a2', role: 'assistant', agent: 'build', time: { created: 25_000 }, tokens: { input: 1200, output: 30, reasoning: 0, cache: { read: 0, write: 0 } } },
+      parts: [{ id: 'x1', type: 'step-start' }, { id: 'x2', type: 'text', text: 'Fertig: rechner.py angelegt.' }] },
+  ]
+  it('takes the turn from its own user message on: text, thinking, tools, tokens and agent', () => {
+    const live = run([ev('message.updated', { info: { id: 'msg_u1', role: 'user' } }), ev('message.part.delta', { partID: 'r1', field: 'text', delta: 'Ich üb' })])
+    const t = turnFromMessages(live, msgs, 19_000)
+    expect(t.text).toBe('Fertig: rechner.py angelegt.')
+    expect(t.reasoning).toBe('Ich überlege.')
+    expect(t.tools).toEqual([{ id: 't1', tool: 'write', status: 'completed', title: 'rechner.py' }])
+    expect(t.usage).toEqual({ input: 1000 + 1200, output: 50 })
+    expect([t.userMsg, t.userMsgs, t.agent]).toEqual(['msg_u1', ['msg_u1'], 'build'])
+  })
+  it('finds the turn by time when its user message id never arrived, and keeps a real error', () => {
+    const withErr = [...msgs.slice(0, 4), { info: { id: 'msg_a2', role: 'assistant', time: { created: 25_000 }, error: { name: 'APIError', data: { message: 'model crashed' } } }, parts: [] }]
+    const t = turnFromMessages(emptyTurn(), withErr, 19_000)
+    expect(t.userMsg).toBe('msg_u1')
+    expect(t.error).toBe('model crashed')
+    expect(turnFromMessages(emptyTurn(), msgs, 99_000)).toEqual(emptyTurn()) // nothing of this turn stored yet
+  })
+  it('ignores the error of a turn the user stopped', () => {
+    const stopped = [...msgs.slice(0, 3), { info: { id: 'msg_a1', role: 'assistant', time: { created: 20_100 }, error: { name: 'MessageAbortedError' } }, parts: [{ id: 'q', type: 'text', text: 'halb' }] }]
+    expect(turnFromMessages(emptyTurn(), stopped, 19_000).error).toBeNull()
+  })
+  it('tells which session an event belongs to (events of other sessions must not end this turn, AN-06)', () => {
+    expect(eventSession(ev('session.idle', { sessionID: 'ses_a' }))).toBe('ses_a')
+    expect(eventSession(ev('message.updated', { info: { sessionID: 'ses_b' } }))).toBe('ses_b')
+    expect(eventSession(ev('message.part.updated', { part: { sessionID: 'ses_c' } }))).toBe('ses_c')
+    expect(eventSession(ev('server.connected'))).toBe('')
   })
 })
