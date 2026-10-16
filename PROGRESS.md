@@ -77,5 +77,6 @@ A free, local, open-source Claude Code equivalent on the user's 24 GB GPU: OpenC
 - 2026-10-15 · Language servers (OD-20) measured: `"lsp": true` (OpenCode fetched pyright, 18.6 MB, into `~/.cache/opencode/packages`), hard tasks ×1 without thinking: 5/6 in 35:54 min vs 6/6 per round in ~37 min without; the one failure was a logic error no language server catches → stays off; the syntax-check rule in AGENTS.md covers the cheap part.
 
 ## Log
+- 2026-10-16: Claude-Schlüssel-Fix — Schlüssel lag in `opencode.json`, die OpenCode beim Start neu schreibt und den Block verwirft → „kein Schlüssel". Jetzt eigene Datei `~/.opendante/claude-key.json` (OpenCode fasst sie nie an), plus `POST /claude/test` + Einstellungen-Knopf „Verbindung testen" (echter Mini-Ping). Companion-Test angepasst; 125 Vitest + Companion-Checks grün; End-to-End in der Cloud bestätigt (Schlüssel wird gefunden und gesendet). Nutzer: neu starten, Schlüssel erneut speichern, „Verbindung testen".
 - 2026-10-15: Modell/Seitenleiste/Tokenzähler, Verlauf, Fortschritt, Feststeck-Fix, Ordner-Browser, Klick-Fix; Verbesserer OD-01..OD-23 (zwei Blöcke), Testlauf 7/7 (siehe History); alles am Shadow-PC gemessen.
 - 2026-10-14: M0 scaffold + M1 foundation + MIT license; M2 agent config; M1 + M2 proven on the Shadow PC; web build fixed; UI-Features (siehe History).

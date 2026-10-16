@@ -29,6 +29,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   const [gitOut, setGitOut] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const [spentToday, setSpentToday] = useState<number | null>(null)
+  const [claudeTest, setClaudeTest] = useState('')
 
   // Refresh the installed skills, cloned projects, chat totals and today's Claude spend whenever the panel opens.
   useEffect(() => {
@@ -156,7 +157,19 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
             <span className="text-ink3">US-Dollar pro Tag (0 = kein Limit)</span>
             {spentToday != null && <span className="text-ink2" data-testid="claude-spent">· heute verbraucht: {spentToday.toFixed(2)} $</span>}
           </div>
-          <button className="btn-accent mt-3" onClick={() => run('Claude-Zugang gespeichert', () => companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel }))} data-testid="save-claude">Speichern</button>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button className="btn-accent" onClick={() => run('Claude-Zugang gespeichert', () => companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel }))} data-testid="save-claude">Speichern</button>
+            <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" data-testid="test-claude"
+              onClick={async () => {
+                setClaudeTest('Teste Verbindung …')
+                try {
+                  await companionPost('/settings', { globalInstructions: s.globalInstructions, apiKey: s.apiKey, claudeModel: s.claudeModel })
+                  const r = await companionPost<{ ok: boolean; model?: string; error?: string }>('/claude/test', { model: s.claudeModel })
+                  setClaudeTest(r.ok ? `✓ Verbindung ok (${r.model})` : `✗ ${r.error || 'Fehlgeschlagen'}`)
+                } catch { setClaudeTest(`✗ ${OFFLINE_HINT}`) }
+              }}>Verbindung testen</button>
+            {claudeTest && <span className={`text-[13px] ${claudeTest.startsWith('✓') ? 'text-emerald-400' : claudeTest.startsWith('✗') ? 'text-red-400' : 'text-ink2'}`} role="status">{claudeTest}</span>}
+          </div>
         </Section>
 
         {/* Projects (GitHub) */}

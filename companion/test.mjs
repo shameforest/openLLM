@@ -38,8 +38,8 @@ try {
   await post('/settings', { globalInstructions: 'Antworte knapp.', apiKey: 'sk-ant-x', claudeModel: 'claude-opus-5-5' })
   const agents = await fs.readFile(path.join(cfg, 'AGENTS.md'), 'utf8')
   ok(agents.includes('Antworte knapp.') && agents.includes('OPENDANTE-USER-START'), 'global instructions written to AGENTS.md')
-  const oc = JSON.parse(await fs.readFile(path.join(cfg, 'opencode.json'), 'utf8'))
-  ok(oc.provider.anthropic.options.apiKey === 'sk-ant-x' && oc.provider.anthropic.models['claude-opus-5-5'], 'anthropic provider + key written')
+  const key = JSON.parse(await fs.readFile(path.join(data, 'claude-key.json'), 'utf8'))
+  ok(key.apiKey === 'sk-ant-x' && key.model === 'claude-opus-5-5', 'claude key written to the dedicated file (not opencode.json)')
 
   // Daily cap for the paid Claude modes (OD-12): enforced before any network call
   const day = new Date().toISOString().slice(0, 10)
@@ -145,11 +145,14 @@ try {
   await post('/settings', { globalInstructions: 'Neu.', apiKey: '', claudeModel: 'claude-opus-5-5' })
   const agents2 = await fs.readFile(path.join(cfg, 'AGENTS.md'), 'utf8')
   ok((agents2.match(/OPENDANTE-USER-START/g) || []).length === 1 && agents2.includes('Neu.'), 'user block replaced, not duplicated')
-  const oc2 = JSON.parse(await fs.readFile(path.join(cfg, 'opencode.json'), 'utf8'))
-  ok(!oc2.provider.anthropic, 'empty key removes the anthropic provider')
+  let keyGone = false
+  try { await fs.access(path.join(data, 'claude-key.json')) } catch { keyGone = true }
+  ok(keyGone, 'empty key removes the dedicated key file')
 
   const noKey = await post('/claude', { prompt: 'hallo' })
   ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')
+  const noKeyTest = await post('/claude/test', {})
+  ok(noKeyTest.ok === false && /Schlüssel/.test(noKeyTest.error || ''), 'claude/test reports a missing key cleanly (no network)')
 } finally {
   srv.kill()
   await fs.rm(cfg, { recursive: true, force: true })

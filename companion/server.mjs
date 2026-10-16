@@ -23,6 +23,9 @@ const MODEL = process.env.OPENDANTE_MODEL || (() => {
 const modelOk = (m) => typeof m === 'string' && /^[\w.-]+(\/[\w.-]+)?(:[\w.-]+)?$/.test(m)
 const PROJECTS = process.env.OPENDANTE_PROJECTS || path.join(os.homedir(), 'OpenDante-Projekte')
 const CHATS = path.join(process.env.OPENDANTE_DATA || path.join(os.homedir(), '.opendante'), 'chats')
+// The Claude key lives in OpenDante's own data dir, NOT in opencode.json — OpenCode rewrites its own config on start
+// and would drop a provider block we hand-wrote, which made the key "disappear" after saving.
+const CLAUDE_FILE = path.join(path.dirname(CHATS), 'claude-key.json')
 
 // Only the app itself may use the companion. Listening on 127.0.0.1 is not enough: any web page open in the same browser
 // can send requests to localhost. So: answer CORS only for our own origins, refuse requests that carry a foreign Origin,
@@ -60,19 +63,21 @@ async function setGlobalInstructions(text) {
   await fs.writeFile(file, base + block)
 }
 
-/** Add/replace an `anthropic` provider in OpenCode's global config, with the key and the chosen Claude model. */
+/** Store the Claude key + chosen model in OpenDante's own file (so OpenCode can't drop it), and clear any copy that an
+ *  earlier version left inside opencode.json. */
 async function setAnthropic(apiKey, model) {
-  const file = path.join(CFG, 'opencode.json')
-  let cfg = {}
-  try { cfg = JSON.parse(await fs.readFile(file, 'utf8')) } catch { /* fresh */ }
-  cfg.provider = cfg.provider || {}
+  await fs.mkdir(path.dirname(CLAUDE_FILE), { recursive: true })
   if (apiKey && apiKey.trim()) {
-    cfg.provider.anthropic = { name: 'Claude (Anthropic)', options: { apiKey: apiKey.trim() }, models: { [model || 'claude-sonnet-5-5']: {} } }
+    await fs.writeFile(CLAUDE_FILE, JSON.stringify({ apiKey: apiKey.trim(), model: model || 'claude-sonnet-5-5' }))
   } else {
-    delete cfg.provider.anthropic
+    try { await fs.unlink(CLAUDE_FILE) } catch { /* nothing to remove */ }
   }
-  await fs.mkdir(CFG, { recursive: true })
-  await fs.writeFile(file, JSON.stringify(cfg, null, 2))
+  // Remove a key an earlier build wrote into OpenCode's own config — it isn't needed there and OpenCode may choke on it.
+  try {
+    const file = path.join(CFG, 'opencode.json')
+    const cfg = JSON.parse(await fs.readFile(file, 'utf8'))
+    if (cfg.provider && cfg.provider.anthropic) { delete cfg.provider.anthropic; await fs.writeFile(file, JSON.stringify(cfg, null, 2)) }
+  } catch { /* no config yet */ }
 }
 
 /** List installed skills (one folder each with a SKILL.md), with name + description read from the --- head. */
@@ -336,10 +341,16 @@ async function deleteChat(id) {
 // Read the stored Anthropic key + model from OpenCode's config (written by the Einstellungen panel).
 async function readAnthropic() {
   try {
+    const s = JSON.parse(await fs.readFile(CLAUDE_FILE, 'utf8'))
+    if (s && s.apiKey) return { key: s.apiKey, model: s.model || null }
+  } catch { /* not set via the dedicated file */ }
+  // Backward compatibility: a key an older build saved inside opencode.json still works.
+  try {
     const cfg = JSON.parse(await fs.readFile(path.join(CFG, 'opencode.json'), 'utf8'))
     const a = cfg.provider && cfg.provider.anthropic
-    return { key: a && a.options && a.options.apiKey, model: a && a.models ? Object.keys(a.models)[0] : null }
-  } catch { return {} }
+    if (a && a.options && a.options.apiKey) return { key: a.options.apiKey, model: a.models ? Object.keys(a.models)[0] : null }
+  } catch { /* none */ }
+  return {}
 }
 
 // Price per million tokens [input, output] in USD — Anthropic first-party rates (claude-api reference, cached
@@ -394,6 +405,23 @@ async function callClaude({ system, prompt, model, capUsd }) {
   return { text, model: useModel, usage, costUsd: cost, todayUsd: day.usd }
 }
 
+/** Verify the stored key with a tiny real call (max_tokens 1). Returns {ok, model} or {ok:false, error}. */
+async function testClaude(model) {
+  const stored = await readAnthropic()
+  if (!stored.key) return { ok: false, error: 'Kein Claude-Schlüssel gespeichert — zuerst eintragen und auf Speichern klicken.' }
+  const useModel = model || stored.model || DEFAULT_CLAUDE
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': stored.key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: useModel, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+    })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) return { ok: false, model: useModel, error: (j && j.error && j.error.message) || `Fehler ${r.status}` }
+    return { ok: true, model: useModel }
+  } catch (e) { return { ok: false, model: useModel, error: String((e && e.message) || e) } }
+}
+
 // ---- static web UI ----
 async function serveStatic(req, res) {
   let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname)
@@ -444,6 +472,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, slug })
     }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
+    if (req.method === 'POST' && url.pathname === '/claude/test') { const b = await readBody(req); return sendJson(res, 200, await testClaude(b.model)) }
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())
     if (req.method === 'POST' && url.pathname === '/update/app') return sendJson(res, 200, runUpdate('app'))
     if (req.method === 'POST' && url.pathname === '/update/models') { const b = await readBody(req); return sendJson(res, 200, runUpdate('models', b.model)) }
