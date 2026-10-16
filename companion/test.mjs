@@ -165,6 +165,18 @@ try {
   try { await fs.access(path.join(data, 'claude-key.json')) } catch { keyGone = true }
   ok(keyGone, 'empty key removes the dedicated key file')
 
+  // Pasted/dropped image → saved to disk, returns a path the UI can attach (the vision model reads it).
+  const png1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const att = await post('/attach', { name: 'screenshot.png', dataBase64: png1x1 })
+  ok(att.path && att.path.endsWith('.png') && att.size > 0, '/attach saves an image and returns its path')
+  const { readFileSync: rf } = await import('node:fs')
+  let onDisk = false; try { onDisk = rf(att.path).length === Buffer.from(png1x1, 'base64').length } catch {}
+  ok(onDisk, 'the saved image is on disk with the right size')
+  const attBad = await post('/attach', { name: 'schad.exe', dataBase64: png1x1 })
+  ok(attBad.error && /nur Bilder/i.test(attBad.error), '/attach refuses a non-image file')
+  const attEmpty = await post('/attach', { name: 'leer.png', dataBase64: '' })
+  ok(attEmpty.error && /leer/i.test(attEmpty.error), '/attach refuses an empty image')
+
   const noKey = await post('/claude', { prompt: 'hallo' })
   ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')
   const noKeyTest = await post('/claude/test', {})

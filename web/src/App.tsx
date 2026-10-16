@@ -4,7 +4,7 @@ import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionReque
 import { LOOP_HINT, autoDecision, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
-import { companionPost } from './companion'
+import { companionPost, saveImageAttachment } from './companion'
 import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
@@ -15,7 +15,7 @@ import { AUTOPILOT_PREFIX, OFFLOAD_SHARE_MAX, localModelName, useSettings } from
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
-import { type Attachment, IMAGE_HINT, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
+import { type Attachment, IMAGE_HINT, blobToBase64, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
 import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadAllowed, offloadBudget, offloadTasks, setOffloadPrefs } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, turnTokens } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
@@ -586,6 +586,26 @@ export default function App() {
   // Files chosen in the in-app file browser wait as chips above the input until the next message is sent.
   const addAttachments = (files: Attachment[]) => setAttachments((a) => mergeAttachments(a, files))
 
+  // Images pasted (Strg+V) or dropped into the prompt box: the browser can't write to disk, so the companion saves each
+  // one and returns its path; then it attaches like a picked file and the vision model reads it with the next message.
+  const [attaching, setAttaching] = useState(0)
+  const [dragOver, setDragOver] = useState(false)
+  async function attachImages(items: { name: string; blob: Blob }[]) {
+    if (!items.length) return
+    setAttaching((n) => n + items.length)
+    for (const { name, blob } of items) {
+      try {
+        const saved = await saveImageAttachment(name, await blobToBase64(blob))
+        addAttachments([{ path: saved.path, name: saved.name, size: saved.size }])
+      } catch (e) { setCtxNote(`Bild konnte nicht angehängt werden: ${String((e as Error).message || e)}`) }
+      finally { setAttaching((n) => n - 1) }
+    }
+  }
+  const imagesFrom = (list: DataTransferItemList | null | undefined): { name: string; blob: File }[] =>
+    [...(list ?? [])].filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+      .map((it, i) => { const f = it.getAsFile(); return f ? { name: f.name || `einfuegung-${Date.now()}-${i}.${it.type.split('/')[1] || 'png'}`, blob: f } : null })
+      .filter((x): x is { name: string; blob: File } => !!x)
+
   // The process of every answer, for the right-hand sidebar (the live turn last).
   const thoughts: Thought[] = []
   let lastPrompt = ''
@@ -711,7 +731,7 @@ export default function App() {
                 <button className="btn-accent shrink-0 !py-1 !text-[13px]" onClick={() => void send({ text: CONTINUE_PROMPT, agent: 'build' })} data-testid="continue-run">Fortsetzen</button>
               </div>
             )}
-            {attachments.length > 0 && (
+            {(attachments.length > 0 || attaching > 0) && (
               <div className="mb-2 flex flex-wrap gap-1.5" data-testid="attachment-chips">
                 {attachments.map((a) => (
                   <span key={a.path} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-lg border border-line bg-panel py-1 pl-2.5 pr-1 text-[12px] text-ink2" data-testid="attachment-chip" title={a.path}>
@@ -722,14 +742,18 @@ export default function App() {
                       onClick={() => setAttachments((xs) => xs.filter((x) => x.path !== a.path))} data-testid="attachment-remove">✕</button>
                   </span>
                 ))}
+                {attaching > 0 && <span className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-panel px-2.5 py-1 text-[12px] text-ink3" data-testid="attachment-pending">🖼 Bild wird angehängt…</span>}
               </div>
             )}
-            <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2">
+            <div className={`flex items-end gap-2 rounded-2xl border bg-panel px-3 py-2 ${dragOver ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
+              onDragOver={(e) => { if ([...(e.dataTransfer?.items ?? [])].some((it) => it.kind === 'file')) { e.preventDefault(); setDragOver(true) } }}
+              onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false) }}
+              onDrop={(e) => { const imgs = imagesFrom(e.dataTransfer?.items); if (imgs.length) { e.preventDefault(); setDragOver(false); void attachImages(imgs) } else setDragOver(false) }}>
               <div className="relative">
                 <button className="mb-1 flex size-9 items-center justify-center rounded-full border border-line text-[18px] text-ink2 hover:bg-user" aria-label="Hinzufügen" onClick={() => setPlusOpen((o) => !o)} data-testid="plus">+</button>
                 {plusOpen && (
                   <div className="absolute bottom-11 left-0 z-10 w-80 rounded-xl border border-line bg-panel p-1 text-[13px]" data-testid="plus-menu">
-                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setFilePickerOpen(true); setPlusOpen(false) }} data-testid="attach-file">📎 Datei anhängen…</button>
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setFilePickerOpen(true); setPlusOpen(false) }} data-testid="attach-file">📎 Datei anhängen… <span className="text-ink3">(Bilder auch mit Strg+V oder Ziehen)</span></button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setPickerOpen(true); setPlusOpen(false) }} data-testid="pick-folder">📁 Ordner hinzufügen…</button>
                     {modes.folders.length > 0 && (
                       <div className="mt-1 border-t border-line pt-1">
@@ -759,6 +783,7 @@ export default function App() {
               <textarea ref={inputRef} className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-ink3"
                 placeholder="Beschreibe, was gebaut werden soll… (oder /skillname)" rows={1} value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onPaste={(e) => { const imgs = imagesFrom(e.clipboardData?.items); if (imgs.length) { e.preventDefault(); void attachImages(imgs) } }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }} />
               {running ? (
                 <button className="mb-1 flex size-9 items-center justify-center rounded-lg bg-accent text-[#1a1410]"

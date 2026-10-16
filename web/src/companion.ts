@@ -22,3 +22,7 @@ export async function companionPost<T = unknown>(path: string, body?: unknown): 
 }
 
 export const OFFLINE_HINT = 'Der lokale Dienst läuft noch nicht — er startet mit OpenDante. Bis dahin greift dieser Knopf nicht.'
+
+/** Save a pasted or dropped image to disk (the companion returns its path) so it can be attached like a picked file. */
+export const saveImageAttachment = (name: string, dataBase64: string) =>
+  companionPost<{ path: string; name: string; size: number }>('/attach', { name, dataBase64 })

@@ -134,7 +134,7 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `settings.ts` | zustand store persisted as localStorage `openllm.modes` (all settings incl. the Claude key), model lists, `AUTOPILOT_PREFIX` |
 | `SettingsPanel.tsx`, `Modi.tsx`, `UsageOverview.tsx`, `UsageReadout.tsx`, `usage.ts` | Einstellungen dialog, the 4 mode switches, token overview, counters |
 | `claude.ts` | Offload/Audit prompts, `<<<CLAUDE … >>>` extraction, calls `POST /claude` |
-| `FolderPicker.tsx`, `FilePicker.tsx`, `fs.ts`, `attachments.ts` | In-app folder/file browser (companion `/fs`), attachments as file parts |
+| `FolderPicker.tsx`, `FilePicker.tsx`, `fs.ts`, `attachments.ts` | In-app folder/file browser (companion `/fs`), attachments as file parts; **images** can be pasted (Ctrl+V) or dropped into the prompt box (companion `POST /attach` saves them) and the vision model reads them (OD-37: `attachment:true`+`modalities` per model in opencode.json) |
 | `skills.ts`, `projects.ts`, `companion.ts`, `storage.ts`, `demo.ts`, `useEscape.ts` | Skills list + `/slug` expansion, GitHub projects/git, companion helper, localStorage helpers, offline demo text, Escape hook |
 
 Settings (`openllm.modes`): `autoAllow` **true**, `autopilot`/`offload`/`audit` false, `thinkMode` `schnell`,

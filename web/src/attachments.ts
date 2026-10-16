@@ -9,7 +9,17 @@ export interface FilePart { type: 'file'; mime: string; filename: string; url: s
 
 /** Above this size a file is flagged as costly: its content fills the model's context window. */
 export const LARGE_FILE_BYTES = 1024 * 1024
-export const IMAGE_HINT = 'nur wenn das Modell Bilder versteht'
+export const IMAGE_HINT = 'Das Modell liest Bilder (Vision): es erkennt den Bildinhalt und auch Text im Bild.'
+
+/** Read an image File/Blob as base64 (without the `data:…;base64,` prefix), for pasting/dropping into the prompt box. */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => { const s = String(r.result); const i = s.indexOf(','); resolve(i >= 0 ? s.slice(i + 1) : s) }
+    r.onerror = () => reject(r.error ?? new Error('Datei nicht lesbar'))
+    r.readAsDataURL(blob)
+  })
+}
 
 const MIME_BY_EXT: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf',

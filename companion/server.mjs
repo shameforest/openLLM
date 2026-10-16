@@ -23,6 +23,10 @@ const MODEL = process.env.OPENDANTE_MODEL || (() => {
 const modelOk = (m) => typeof m === 'string' && /^[\w.-]+(\/[\w.-]+)?(:[\w.-]+)?$/.test(m)
 const PROJECTS = process.env.OPENDANTE_PROJECTS || path.join(os.homedir(), 'OpenDante-Projekte')
 const CHATS = path.join(process.env.OPENDANTE_DATA || path.join(os.homedir(), '.opendante'), 'chats')
+// Where pasted / dropped images are saved so the model can read them by path (the browser cannot write to disk, and
+// OpenCode reads an attachment from a file:// url). The vision model reads the image and any text in it.
+const ATTACH_DIR = path.join(path.dirname(CHATS), 'attachments')
+const IMG_EXT = { png: 'png', jpg: 'jpg', jpeg: 'jpeg', gif: 'gif', webp: 'webp' }
 // The Claude key lives in OpenDante's own data dir, NOT in opencode.json — OpenCode rewrites its own config on start
 // and would drop a provider block we hand-wrote, which made the key "disappear" after saving.
 const CLAUDE_FILE = path.join(path.dirname(CHATS), 'claude-key.json')
@@ -457,6 +461,22 @@ async function testClaude(model) {
   } catch (e) { return { ok: false, model: useModel, error: String((e && e.message) || e) } }
 }
 
+/** Save a pasted or dropped image (base64) to the attachments folder and return its path, so the UI can attach it like
+ *  a picked file. Images only (the model reads them); a size cap keeps the context sane. */
+async function saveAttachment({ name, dataBase64 }) {
+  const ext = String(name || '').split('.').pop()?.toLowerCase()
+  if (!ext || !IMG_EXT[ext]) throw new Error('Nur Bilder (png, jpg, gif, webp) können so eingefügt werden.')
+  const buf = Buffer.from(String(dataBase64 || ''), 'base64')
+  if (!buf.length) throw new Error('Leeres Bild.')
+  if (buf.length > 25 * 1024 * 1024) throw new Error('Bild zu groß (max. 25 MB).')
+  await fs.mkdir(ATTACH_DIR, { recursive: true })
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  const safe = (String(name).replace(/[^\w.-]+/g, '_').replace(/^[-_.]+/, '') || `bild.${ext}`).slice(-60)
+  const file = path.join(ATTACH_DIR, `${id}-${safe}`)
+  await fs.writeFile(file, buf)
+  return { path: file, name: safe, size: buf.length }
+}
+
 // ---- static web UI ----
 async function serveStatic(url, res) {
   let rel
@@ -520,6 +540,7 @@ const server = http.createServer(async (req, res) => {
       const slug = await saveSkill(b.name, b.content)
       return sendJson(res, 200, { ok: true, slug })
     }
+    if (req.method === 'POST' && url.pathname === '/attach') { const b = await readBody(req); return sendJson(res, 200, await saveAttachment(b)) }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/claude/test') { const b = await readBody(req); return sendJson(res, 200, await testClaude(b.model)) }
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())
