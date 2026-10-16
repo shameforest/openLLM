@@ -220,6 +220,7 @@ function createMock(appOrigin) {
         return json(route, { id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: Date.now(), workdir: c.workdir ?? '', model: c.model ?? '', messages: (c.messages ?? []).length, usage: c.usage ?? {} })
       }
       if (m === 'POST' && p === '/git/prepare') return json(route, { created: true })
+      if (m === 'POST' && p === '/offload-prefs') return json(route, { ok: true, offloadShare: body?.offloadShare ?? 0, dailyUsd: body?.claudeDailyUsd ?? 0 })
       if (m === 'GET' && p === '/claude/usage') return json(route, { usd: 0 })
       if (m === 'GET' && p === '/fs') {
         const dir = url.searchParams.get('path') || ''
@@ -264,6 +265,7 @@ const ANSWER = ANSWER_PARTS.join('')
 const answerStart = () => [
   { type: 'message.updated', properties: { info: { id: 'msg_user1', sessionID: SES, role: 'user', agent: 'build' } } },
   { type: 'message.updated', properties: { info: { id: 'msg_asst1', sessionID: SES, role: 'assistant', agent: 'build' } } },
+  { type: 'message.part.updated', properties: { part: { id: 'prt_tool', messageID: 'msg_asst1', sessionID: SES, type: 'tool', tool: 'write', state: { status: 'completed', title: 'rechner.py' } } } },
   { type: 'message.part.updated', properties: { part: { id: 'prt_ans', messageID: 'msg_asst1', sessionID: SES, type: 'text', text: '' } } },
   ...ANSWER_PARTS.map((delta) => ({ type: 'message.part.delta', properties: { sessionID: SES, messageID: 'msg_asst1', partID: 'prt_ans', field: 'text', delta } })),
 ]
@@ -492,6 +494,10 @@ async function main() {
   await step('f. answer streams in, then "1 Datei geändert" with Ansehen → diff modal; Esc closes it', async () => {
     await waitFor(async () => (await tid('answer').last().textContent({ timeout: 1000 }))?.includes(ANSWER), `answer text "${ANSWER}"`)
     check(await tid('stop').isVisible(), 'expected the turn to still be running while the answer streams')
+    // OD-55: the live activity card shows what the agent is doing, independent of its task list
+    await visible('activity-card', 'live activity card while running')
+    check((await textOf('activity-now')).includes('rechner.py'), 'expected the activity card to name the file being worked on')
+    check(/1 Datei geändert/.test(await textOf('activity-files')), 'expected the activity card to count 1 changed file')
     await shot('answer-streaming')
 
     mock.queue(...answerFinish())

@@ -128,7 +128,7 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `requests.ts` | German permission texts, **`autoDecision`** (auto-allow policy), path checks, one-liner check; also used by the Testlauf |
 | `RequestCard.tsx` | Permission card (Einmal / Immer / Ablehnen, loop: "Anders weitermachen") and question card |
 | `messages.ts` | `Msg` type, `CONTEXT_LIMIT` (from opencode.json), `wroteFiles`, `toThought` |
-| `Bubble.tsx`, `ThinkingSidebar.tsx`, `TodoCard.tsx`, `TurnActions.tsx`, `diffs.ts` | Answer bubble, thinking sidebar, task list, undo/diff/plan buttons, CRLF-insensitive diff cleanup |
+| `Bubble.tsx`, `ThinkingSidebar.tsx`, `TodoCard.tsx`, `ActivityCard.tsx`, `TurnActions.tsx`, `diffs.ts` | Answer bubble, thinking sidebar, task list, live activity card (OD-55: current action + files, from `run.turn.tools`), undo/diff/plan buttons, diff cleanup |
 | `loops.ts` | Loop detector (3 same errors / A-B oscillation / 4× same call) → "Anders weitermachen" |
 | `ChatSidebar.tsx`, `HistoryItem.tsx`, `chats.ts` | Left column, Verlauf (rename/delete), chat store (companion `/chats`) |
 | `settings.ts` | zustand store persisted as localStorage `openllm.modes` (all settings incl. the Claude key), model lists, `AUTOPILOT_PREFIX` |

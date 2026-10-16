@@ -9,6 +9,7 @@ import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
+import { ActivityCard } from './ActivityCard'
 import { type StoredMessage, type Turn, emptyTurn, eventSession, lastTurn, produced, reduceEvent, splitThinking, turnFromMessages } from './stream'
 import { AUTOPILOT_PREFIX, OFFLOAD_SHARE_MAX, localModelName, useSettings } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
@@ -51,6 +52,7 @@ export default function App() {
   const runRef = useRef(run)
   runRef.current = run
   const [todos, setTodos] = useState<Todo[]>([]) // the agent's own task list for the current chat (OD-18)
+  const [todosAt, setTodosAt] = useState(0) // when the model last changed its list (live todo.updated), 0 = not seen (OD-56)
   const [ctxUsed, setCtxUsed] = useState(0)      // tokens the model read in the last step = how full its context is (OD-19)
   const [ctxNote, setCtxNote] = useState('')
   const [usage, setUsage] = useState<ChatUsage>(emptyUsage) // tokens in this chat: local vs Claude
@@ -101,7 +103,7 @@ export default function App() {
     setActiveChat(null)
     setMessages([]); setRun(null); setUsage(emptyUsage())
     setPerms([]); setQuestions([]); autoReplied.current.clear()
-    setTodos([]); setCtxUsed(0); setCtxNote('')
+    setTodos([]); setTodosAt(0); setCtxUsed(0); setCtxNote('')
   }
 
   // Changing the working folder (from the "+" menu or from Einstellungen) starts a fresh session in the new folder —
@@ -143,7 +145,7 @@ export default function App() {
       chatRef.current = { id: c.id, createdAt: c.createdAt, title: c.title }
       setActiveChat(c.id); setHistoryMsg('')
       setMessages(c.messages); setRun(null); setUsage({ ...emptyUsage(), ...c.usage })
-      setTodos([]); setCtxUsed(0); setCtxNote('')
+      setTodos([]); setTodosAt(0); setCtxUsed(0); setCtxNote('')
       if (c.sessionId) void sessionTodos(c.sessionId, c.workdir || '').then(setTodos).catch(() => {})
       if ((c.workdir || '') !== modes.workdir) { resumeDirRef.current = c.workdir || ''; modes.set({ workdir: c.workdir || '' }) }
       if (c.sessionId) void syncFromServer(c.sessionId, c.workdir || '', c.messages) // catch up on work done while closed
@@ -263,7 +265,7 @@ export default function App() {
       case 'permission.replied': { const id = p.requestID ?? p.data?.requestID; setPerms((xs) => xs.filter((x) => x.id !== id)); break }
       case 'question.asked': setQuestions((xs) => (xs.some((x) => x.id === p.id) ? xs : [...xs, p as QuestionRequest])); break
       case 'question.replied': case 'question.rejected': { const id = p.requestID ?? p.data?.requestID; setQuestions((xs) => xs.filter((x) => x.id !== id)); break }
-      case 'todo.updated': if (p.sessionID === sessionRef.current && Array.isArray(p.todos)) setTodos(p.todos as Todo[]); break
+      case 'todo.updated': if (p.sessionID === sessionRef.current && Array.isArray(p.todos)) { setTodos(p.todos as Todo[]); setTodosAt(Date.now()) } break
     }
   }, [])
 
@@ -669,7 +671,19 @@ export default function App() {
                 onQuestion={(id, answers) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void replyQuestion(id, answers, modes.workdir).catch(() => {}) }}
                 onReject={(id) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void rejectQuestion(id, modes.workdir).catch(() => {}) }} />
             )}
-            {(running || todos.some((t) => t.status === 'pending' || t.status === 'in_progress')) && <TodoCard todos={todos} />}
+            {(running || todos.some((t) => t.status === 'pending' || t.status === 'in_progress')) && (
+              <>
+                <TodoCard todos={todos} />
+                {/* OD-56: the model does not always update its list while it works — say so, and point to the live activity. */}
+                {running && todosAt > 0 && Date.now() - todosAt > 120_000 && (
+                  <div className="mb-2 -mt-1 px-1 text-[12px] text-ink3" data-testid="todo-stale">
+                    Liste zuletzt vor {Math.round((Date.now() - todosAt) / 60_000)} Min aktualisiert — der Agent arbeitet weiter, er aktualisiert sie nicht immer sofort (siehe unten).
+                  </div>
+                )}
+              </>
+            )}
+            {/* OD-55: what the agent is really doing now — independent of whether it maintains its task list. */}
+            {run && !run.turn.done && run.turn.tools.length > 0 && <ActivityCard tools={run.turn.tools} />}
             {!running && online && hasGit === false && !gitSkip.includes(effectiveDir) && (
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-panel px-4 py-2.5 text-[13px]" data-testid="git-hint">
                 <span className="min-w-0 flex-1 text-ink2">
