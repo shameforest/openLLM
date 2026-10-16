@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OcEvent } from './api'
-import { emptyTurn, eventSession, produced, reduceEvent, turnFromMessages, type Turn } from './stream'
+import { emptyTurn, eventSession, lastTurn, produced, reduceEvent, turnFromMessages, type Turn } from './stream'
 
 const ev = (type: string, properties: Record<string, unknown> = {}): OcEvent => ({ id: 'evt', type, properties })
 const run = (events: OcEvent[], start: Turn = emptyTurn()): Turn => events.reduce(reduceEvent, start)
@@ -164,5 +164,33 @@ describe('re-reading a turn after the live stream had a gap (AN-05)', () => {
     expect(eventSession(ev('message.updated', { info: { sessionID: 'ses_b' } }))).toBe('ses_b')
     expect(eventSession(ev('message.part.updated', { part: { sessionID: 'ses_c' } }))).toBe('ses_c')
     expect(eventSession(ev('server.connected'))).toBe('')
+  })
+})
+
+describe('lastTurn — recover the last turn after a close or shutdown (resume)', () => {
+  const msgs = [
+    { info: { id: 'u0', role: 'user', time: { created: 1000 } }, parts: [{ id: 'a', type: 'text', text: 'erste Frage' }] },
+    { info: { id: 'a0', role: 'assistant', agent: 'build', time: { created: 1100 }, tokens: { input: 10, output: 3, reasoning: 0, cache: {} } }, parts: [{ id: 'b', type: 'text', text: 'erste Antwort' }] },
+    { info: { id: 'u1', role: 'user', time: { created: 2000 } }, parts: [{ id: 'c', type: 'text', text: 'zweite Frage' }] },
+    { info: { id: 'a1', role: 'assistant', agent: 'build', time: { created: 2100 }, tokens: { input: 40, output: 8, reasoning: 0, cache: { read: 100 } } },
+      parts: [{ id: 'd', type: 'tool', tool: 'write', state: { status: 'completed', title: 'x.py' } }, { id: 'e', type: 'text', text: 'zweite Antwort, fertig' }] },
+  ]
+  it('rebuilds only the last turn (from the last user message), not the whole chat', () => {
+    const t = lastTurn(msgs)
+    expect(t.userMsg).toBe('u1')
+    expect(t.text).toBe('zweite Antwort, fertig')
+    expect(t.tools).toEqual([{ id: 'd', tool: 'write', status: 'completed', title: 'x.py' }])
+    expect(t.usage).toEqual({ input: 140, output: 8 })
+    expect(t.text).not.toContain('erste')
+  })
+  it('handles a turn that was interrupted before any answer (last message is the user prompt)', () => {
+    const open = [...msgs, { info: { id: 'u2', role: 'user', time: { created: 3000 } }, parts: [{ id: 'f', type: 'text', text: 'dritte Frage' }] }]
+    const t = lastTurn(open)
+    expect(t.userMsg).toBe('u2')
+    expect(t.text).toBe('')
+    expect(t.tools).toEqual([])
+  })
+  it('returns an empty turn when the server has no messages', () => {
+    expect(lastTurn([])).toEqual(emptyTurn())
   })
 })

@@ -381,21 +381,27 @@ async function addClaudeUsage(usd) {
   return next
 }
 
-/** One call to the Claude Messages API with the stored key. Used by the auto offload/audit modes. A daily cap in USD
- *  (`capUsd`, from Einstellungen; 0 = none) is enforced here, server-side, before each call. */
-async function callClaude({ system, prompt, model, capUsd }) {
+// Overridable for the self-test (a local fake API), never set in normal use.
+const ANTHROPIC_URL = process.env.OPENDANTE_ANTHROPIC_URL || 'https://api.anthropic.com/v1/messages'
+
+/** One call to the Claude Messages API with the stored key. Used by the audit mode and the helper tool. A daily cap in
+ *  USD (`capUsd` from the request, else the one the app last reported; 0 = none) is enforced here before each call. */
+async function callClaude({ system, prompt, model, capUsd, chatId, maxTokens }) {
   const stored = await readAnthropic()
   if (!stored.key) throw new Error('Kein Claude-Schlüssel gespeichert (Einstellungen → Claude-Verbindung → Speichern).')
-  const cap = Number(capUsd) || 0
+  const t = chatId && tasks.get(chatId)
+  if (t && t.blocked) throw new Error(`Für diesen Chat gesperrt: ${t.reason}`)
+  const cap = Number(capUsd) || Number(lastCapUsd) || 0
   if (cap > 0) {
     const u = await claudeUsage()
     if (u.usd >= cap) throw new Error(`Tageslimit für Claude erreicht (${u.usd.toFixed(2)} $ von ${cap.toFixed(2)} $). Ab Mitternacht (UTC) wieder frei, oder das Limit in den Einstellungen erhöhen.`)
   }
   const useModel = model || stored.model || DEFAULT_CLAUDE
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
+  const r = await fetch(ANTHROPIC_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': stored.key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: useModel, max_tokens: 4096, system: system || '', messages: [{ role: 'user', content: String(prompt || '') }] }),
+    body: JSON.stringify({ model: useModel, max_tokens: Math.max(1, Math.min(4096, Number(maxTokens) || 4096)), system: system || '', messages: [{ role: 'user', content: String(prompt || '') }] }),
+    signal: AbortSignal.timeout(180_000),
   })
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error((j && j.error && j.error.message) || `Claude-API Fehler ${r.status}`)
@@ -403,8 +409,15 @@ async function callClaude({ system, prompt, model, capUsd }) {
   const usage = { input_tokens: Number(j.usage && j.usage.input_tokens) || 0, output_tokens: Number(j.usage && j.usage.output_tokens) || 0 }
   const cost = costUsd(useModel, usage.input_tokens, usage.output_tokens)
   const day = await addClaudeUsage(cost)
-  return { text, model: useModel, usage, costUsd: cost, todayUsd: day.usd }
+  return { text, model: useModel, usage, costUsd: cost, todayUsd: day.usd, stop: j.stop_reason || '' }
 }
+
+// ---- Claude-Helfer: automatic offloading DURING a task, up to a hard share (the slider above the prompt box) ----
+// The local agent calls the MCP tool "claude-helfer" (companion/claude-mcp.mjs) with a self-contained subtask. Before
+// anything leaves the PC: (1) the chat must not be blocked — its prompts are checked for content Claude must not handle;
+// (2) the subtask must not contain secrets or personal data; (3) the share of Claude's output in the chat's generated
+// tokens must stay within the slider (hard: Claude's answer length is cut to what the budget allows); (4) the daily
+// USD cap. The app
 
 /** Verify the stored key with a tiny real call (max_tokens 1). Returns {ok, model} or {ok:false, error}. */
 async function testClaude(model) {

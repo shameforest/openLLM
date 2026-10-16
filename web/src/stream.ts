@@ -63,15 +63,9 @@ export function eventSession(e: OcEvent): string {
 
 export type StoredMessage = { info: Record<string, any>; parts: Record<string, any>[] }
 
-/** Rebuild a turn from the messages the server stored (GET /session/{id}/message) — for when the live stream had a
- *  gap and events, possibly the end, were missed (AN-05). The turn = its first user message and everything after it;
- *  if that id never arrived, the first user message created since `since` (ms). Text and thinking come from the parts'
- *  final text; tools, tokens and agent go through the same reducer as live events. */
-export function turnFromMessages(turn: Turn, msgs: StoredMessage[], since: number): Turn {
-  let start = turn.userMsg ? msgs.findIndex((m) => m.info?.id === turn.userMsg) : -1
-  if (start < 0) start = msgs.findIndex((m) => m.info?.role === 'user' && num(m.info?.time?.created) >= since - 5000)
-  if (start < 0) return turn
-  let t: Turn = { ...turn, segs: [], kinds: {}, tools: [], perMsg: {}, usage: null }
+/** Replay the stored messages from index `start` onward into `base`, through the same reducer as live events. */
+function rebuildFrom(base: Turn, msgs: StoredMessage[], start: number): Turn {
+  let t: Turn = { ...base, segs: [], kinds: {}, tools: [], perMsg: {}, usage: null }
   const ev = (type: string, properties: Record<string, unknown>): OcEvent => ({ id: 'sync', type, properties })
   for (const m of msgs.slice(start)) {
     t = reduceEvent(t, ev('message.updated', { info: m.info }))
@@ -85,6 +79,25 @@ export function turnFromMessages(turn: Turn, msgs: StoredMessage[], since: numbe
     if (err && err.name !== 'MessageAbortedError' && !t.error) t = { ...t, error: errorText({ error: err }) }
   }
   return t
+}
+
+/** Rebuild the current turn from the messages the server stored (GET /session/{id}/message) — for when the live stream
+ *  had a gap and events, possibly the end, were missed (AN-05). The turn = its first user message and everything after
+ *  it; if that id never arrived, the first user message created since `since` (ms). Text and thinking come from the
+ *  parts' final text; tools, tokens and agent go through the same reducer as live events. */
+export function turnFromMessages(turn: Turn, msgs: StoredMessage[], since: number): Turn {
+  let start = turn.userMsg ? msgs.findIndex((m) => m.info?.id === turn.userMsg) : -1
+  if (start < 0) start = msgs.findIndex((m) => m.info?.role === 'user' && num(m.info?.time?.created) >= since - 5000)
+  if (start < 0) return turn
+  return rebuildFrom(turn, msgs, start)
+}
+
+/** Rebuild the LAST turn the server has (from its last user message on) — to recover a turn that finished, or is still
+ *  running, while the window was closed (resume after a stop, a closed window, or a PC shutdown). */
+export function lastTurn(msgs: StoredMessage[]): Turn {
+  let start = -1
+  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].info?.role === 'user') { start = i; break }
+  return start < 0 ? emptyTurn() : rebuildFrom(emptyTurn(), msgs, start)
 }
 
 export function reduceEvent(turn: Turn, e: OcEvent): Turn {

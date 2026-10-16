@@ -9,7 +9,7 @@ import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
-import { type Turn, emptyTurn, eventSession, produced, reduceEvent, splitThinking, turnFromMessages } from './stream'
+import { type StoredMessage, type Turn, emptyTurn, eventSession, lastTurn, produced, reduceEvent, splitThinking, turnFromMessages } from './stream'
 import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
@@ -34,6 +34,13 @@ import { UsageReadout } from './UsageReadout'
 // running it falls back to a simulated answer so the window is never dead — the same render path is used either way.
 // The main window shows only final answers; the process (thinking, tool steps, Claude handoffs) lives in the
 // right-hand Gedankengang sidebar.
+
+// Sent by the "Fortsetzen" button after a stopped or interrupted turn: the agent first checks where it stood (its task
+// list / FORTSCHRITT.md and the files on disk) and then carries on, instead of starting over.
+const CONTINUE_PROMPT =
+  'Mach dort weiter, wo du aufgehört hast. Sieh dir zuerst deinen Stand an: deine Aufgabenliste (todowrite) ' +
+  'bzw. FORTSCHRITT.md, falls vorhanden, und den aktuellen Stand der Dateien im Arbeitsordner. Setze dann die ' +
+  'nächste offene Teilaufgabe um. Wiederhole nichts, was schon fertig ist.'
 
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([])
@@ -107,19 +114,24 @@ export default function App() {
     startNewChat()
   }, [modes.workdir]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save the chat to the Verlauf whenever it changed and no answer is streaming (after each answer and each Claude
-  // reply). Placeholders ("Claude bearbeitet …") are left out so a reopened chat never shows a stuck one.
-  useEffect(() => {
+  // Save the chat so it can be reopened and continued later. Save the whole state (messages + session id + usage) to
+  // the companion. Placeholders ("Claude bearbeitet …") are left out so a reopened chat never shows a stuck one.
+  const usageRef = useRef(usage)
+  usageRef.current = usage
+  const persistChat = useCallback((msgs: Msg[], u: ChatUsage = usageRef.current) => {
     const c = chatRef.current
-    if (!c || run || messages.length === 0) return
-    const id = window.setTimeout(() => {
-      void chats.save({
-        id: c.id, title: c.title, createdAt: c.createdAt, workdir: modes.workdir, model: modes.localModel,
-        sessionId: sessionRef.current, messages: messages.filter((m) => !m.pending), usage,
-      }).catch(() => { /* companion not running: the chat stays in the window, the next save retries */ })
-    }, 400)
+    if (!c || msgs.length === 0) return
+    void chats.save({
+      id: c.id, title: c.title, createdAt: c.createdAt, workdir: modes.workdir, model: modes.localModel,
+      sessionId: sessionRef.current, messages: msgs.filter((m) => !m.pending), usage: u,
+    }).catch(() => { /* companion not running: the chat stays in the window, the next save retries */ })
+  }, [modes.workdir, modes.localModel]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Debounced save after each answer and Claude reply (and whenever the transcript settles while idle).
+  useEffect(() => {
+    if (run || messages.length === 0) return
+    const id = window.setTimeout(() => persistChat(messages), 400)
     return () => window.clearTimeout(id)
-  }, [messages, usage, run]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages, usage, run, persistChat])
 
   /** Reopen a saved chat: its messages, thinking and token counts come back, and the next message continues in the same
    *  OpenCode session, so the model still knows everything said before. */
@@ -134,10 +146,44 @@ export default function App() {
       setTodos([]); setCtxUsed(0); setCtxNote('')
       if (c.sessionId) void sessionTodos(c.sessionId, c.workdir || '').then(setTodos).catch(() => {})
       if ((c.workdir || '') !== modes.workdir) { resumeDirRef.current = c.workdir || ''; modes.set({ workdir: c.workdir || '' }) }
+      if (c.sessionId) void syncFromServer(c.sessionId, c.workdir || '', c.messages) // catch up on work done while closed
     } catch (e) {
       setHistoryMsg(`Chat ließ sich nicht öffnen: ${String((e as Error).message || e)}`)
     }
     void ensureLoaded() // start loading the model into the GPU while the user reads the reopened chat
+  }
+
+  // Reconcile a reopened chat with the OpenCode server: the turn may have finished — or still be running — while the
+  // window was closed (AN: resume after stop / close / shutdown). If the session is still busy, re-attach the live view
+  // so the running answer streams in; if the last saved message is an unanswered prompt, fetch the answer the server
+  // produced in the meantime and append it. Only reads from the server; the local session keeps all its context.
+  async function syncFromServer(sid: string, workdir: string, saved: Msg[]) {
+    if (online !== true) return
+    let status: Record<string, import('./api').SessionStatus> = {}
+    try { status = await sessionStatus(workdir) } catch { return }
+    if (sid !== sessionRef.current) return
+    const busy = !!status[sid] && status[sid].type !== 'idle'
+    const lastIsUser = saved.length > 0 && saved[saved.length - 1].role === 'user'
+    if (!busy && !lastIsUser) return // nothing changed since the chat was saved
+    let msgs: StoredMessage[]
+    try { msgs = await sessionMessages(sid, workdir) } catch { return }
+    if (sid !== sessionRef.current) return
+    const turn = lastTurn(msgs)
+    if (busy) {
+      // The agent is still working: re-attach a live view. The stream (filtered to this session) keeps updating it and
+      // the commit effect ends it on idle. gap=true so this partly-known turn is not used to learn timings.
+      const startedAt = Date.now()
+      setRun({ startedAt, turn, prog: startProgress(startedAt), gap: true, agent: turn.agent === 'plan' ? 'plan' : 'build' })
+      return
+    }
+    // Idle and the last saved message had no answer: the turn finished while the window was closed. Append its result.
+    if (lastIsUser && (turn.text.trim() || turn.tools.length > 0 || turn.error)) {
+      const answer: Msg = { role: 'assistant', text: turn.text, reasoning: turn.reasoning, tools: turn.tools, error: turn.error, agent: turn.agent === 'plan' ? 'plan' : 'build', userMsg: turn.userMsg }
+      const next = [...saved, answer]
+      setMessages(next)
+      if (!turn.error) { const u = addLocal(usageRef.current, turn); setUsage(u); persistChat(next, u) } else persistChat(next)
+      if (turn.perMsg && Object.values(turn.perMsg).length) setCtxUsed(Object.values(turn.perMsg).slice(-1)[0].input)
+    }
   }
 
   // Load the model into the GPU ahead of time (on start, on model change, when reopening a chat) and show a progress
@@ -294,7 +340,7 @@ export default function App() {
     // The agent of the last answer counts: a plan that was switched to "build" and carried out in the same turn is no
     // longer a plan waiting for "Plan umsetzen".
     const agent = t.agent === 'plan' || t.agent === 'build' ? t.agent : run.agent
-    const answer: Msg = { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error, agent, userMsg: t.userMsg }
+    const answer: Msg = { role: 'assistant', text: t.text, reasoning: t.reasoning, tools: t.tools, error: t.error, agent, userMsg: t.userMsg, stopped: run.stopped || run.gap || undefined }
     setMessages((m) => [...m, answer])
     // The stream had a gap during this turn: parts of the text may be missing — take the server's stored version.
     if (run.gap && !run.sim && sessionRef.current) {
@@ -344,6 +390,15 @@ export default function App() {
   }, [run?.turn.done])
 
   const running = !!run && !run.turn.done
+  // The chat looks interrupted (a stop, a closed window, a shutdown mid-answer): the last message is an unanswered
+  // prompt, or the last answer errored or stayed empty. Then offer "Fortsetzen" instead of making the user retype.
+  const lastMsg = messages[messages.length - 1]
+  const openTodos = todos.some((t) => t.status === 'pending' || t.status === 'in_progress')
+  // Offer "Fortsetzen" when the chat was cut short: an unanswered prompt, an errored or empty answer, a turn marked
+  // stopped (Stopp or a stream gap), or an answer that still has open task-list items (a big task left half-done).
+  const canContinue = !running && online === true && !!sessionRef.current && !!lastMsg && !lastMsg.kind &&
+    (lastMsg.role === 'user' || !!lastMsg.error || !!lastMsg.stopped || openTodos ||
+      (lastMsg.role === 'assistant' && !lastMsg.text.trim() && !(lastMsg.tools?.length)))
 
   function simulate(startedAt: number) {
     const total = 24 + Math.floor(Math.random() * (DEMO.length - 24))
@@ -371,7 +426,9 @@ export default function App() {
     const files = override ? [] : attachments
     if (!override) { setInput(''); setAttachments([]) }
     setCtxNote('')
-    setMessages((m) => [...m.filter((x) => !x.reverted), { role: 'user', text: withAttachmentLines(prompt, files) }])
+    const userMsg: Msg = { role: 'user', text: withAttachmentLines(prompt, files) }
+    const nextMsgs = [...messages.filter((x) => !x.reverted), userMsg]
+    setMessages(nextMsgs)
     const startedAt = Date.now()
     setRun({ startedAt, turn: emptyTurn(), prog: startProgress(startedAt), sim: !online, agent })
     if (online) {
@@ -389,6 +446,9 @@ export default function App() {
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         const title = chatRef.current.title
         if (!sessionRef.current) sessionRef.current = (await createSession(title, modes.workdir)).id
+        // Save the chat NOW, with the prompt and the session id — so closing the window or a shutdown mid-answer still
+        // leaves a chat in the Verlauf that can be reopened and continued (the answer is fetched back from the server).
+        persistChat(nextMsgs)
         // Carrying out runs without thinking unless "Gründlich" is chosen; a plan is always thought through (OD-29).
         const variant = agent === 'plan' || modes.thinkMode === 'gruendlich' ? undefined : 'ohne-denken'
         try {
@@ -598,6 +658,14 @@ export default function App() {
               </div>
             )}
             {run && !run.turn.done && <Clock startedAt={run.startedAt} prog={run.prog} tools={run.turn.tools} steps={stepSamples} tasks={taskSamples} model={modes.localModel} waiting={perms.length > 0 || questions.length > 0} retry={run.turn.retry} />}
+            {canContinue && (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-panel px-4 py-2.5 text-[13px]" data-testid="continue-bar">
+                <span className="min-w-0 flex-1 text-ink2">
+                  ⏸ Dieser Auftrag wurde unterbrochen. OpenDante macht dort weiter, wo es aufgehört hat — es prüft zuerst seinen Stand und die Dateien.
+                </span>
+                <button className="btn-accent shrink-0 !py-1 !text-[13px]" onClick={() => void send({ text: CONTINUE_PROMPT, agent: 'build' })} data-testid="continue-run">Fortsetzen</button>
+              </div>
+            )}
             {attachments.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5" data-testid="attachment-chips">
                 {attachments.map((a) => (

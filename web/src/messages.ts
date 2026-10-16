@@ -10,6 +10,7 @@ export interface Msg {
   userMsg?: string | null   // OpenCode id of the turn's user message: key for its file changes and for undo
   changes?: FileDiff[] | null
   reverted?: boolean        // undone; OpenCode drops it for good with the next prompt
+  stopped?: boolean         // the turn was cut short (Stopp, or a gap during it) — offer "Fortsetzen"
 }
 
 /** The model's context window (tokens it can see at once), from config/opencode.json. */
