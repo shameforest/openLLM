@@ -25,24 +25,28 @@ export function RequestCard({ perms, questions, autoAllow, workdir, safeDirs = [
 function PermissionBox({ p, autoAllow, why, onReply, more }: { p: PermissionRequest; autoAllow: boolean; why: string; onReply: (id: string, reply: 'once' | 'always' | 'reject', message?: string) => void; more: number }) {
   const { title, detail } = describePermission(p)
   const loop = p.permission === 'doom_loop'
+  // A full accent border + tinted background + a short glow, so this "needs you" card clearly stands out from the quiet
+  // status cards above the chat box (which all share border-line/bg-panel) and is not overlooked.
+  const btn2 = 'rounded-lg border border-accent/30 bg-panel px-3 py-1.5 text-[14px] text-ink hover:bg-user'
   return (
-    <div className="mb-2 rounded-xl border border-accent/40 bg-panel px-4 py-3" data-testid="perm-card">
-      <div className="flex items-center gap-2 text-[13px] font-medium text-accent">
-        <span>{loop ? '🔁' : '🔐'}</span><span>OpenDante {title}</span>
-        {more > 0 && <span className="rounded-full bg-line px-2 text-[11px] text-ink3">+{more} weitere</span>}
+    <div className="attn mb-2 rounded-xl border-2 border-accent bg-accent/10 px-4 py-3" data-testid="perm-card">
+      <div className="flex items-center gap-2 text-[14px] font-semibold text-accent">
+        <span className="size-2 shrink-0 animate-pulse rounded-full bg-accent motion-reduce:animate-none" aria-hidden />
+        <span>{loop ? '🔁 Der Agent dreht sich im Kreis' : '🔐 Freigabe nötig —'} {!loop && <span className="text-ink">OpenDante {title}</span>}</span>
+        {more > 0 && <span className="ml-auto rounded-full bg-accent/20 px-2 text-[11px] text-accent">+{more} wartet</span>}
       </div>
       {detail && <div className="mono mt-1.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-bg px-3 py-2 text-[12px] text-ink2" data-testid="perm-detail">{detail}</div>}
       <div className="mt-2.5 flex flex-wrap gap-2">
         {loop ? (
           <>
             <button className="btn-accent" onClick={() => onReply(p.id, 'reject')} data-testid="perm-redirect">Anders weitermachen</button>
-            <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => onReply(p.id, 'once')} data-testid="perm-once">Trotzdem einmal</button>
+            <button className={btn2} onClick={() => onReply(p.id, 'once')} data-testid="perm-once">Trotzdem einmal</button>
           </>
         ) : (
           <>
             <button className="btn-accent" onClick={() => onReply(p.id, 'once')} data-testid="perm-once">Einmal erlauben</button>
-            <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => onReply(p.id, 'always')} data-testid="perm-always">Immer erlauben</button>
-            <button className="rounded-lg border border-line px-3 py-1.5 text-[14px] text-ink2 hover:bg-user" onClick={() => onReply(p.id, 'reject')} data-testid="perm-reject">Ablehnen</button>
+            <button className={btn2} onClick={() => onReply(p.id, 'always')} data-testid="perm-always">Immer erlauben</button>
+            <button className={btn2} onClick={() => onReply(p.id, 'reject')} data-testid="perm-reject">Ablehnen</button>
           </>
         )}
       </div>
@@ -74,8 +78,11 @@ function QuestionBox({ q, onAnswer, onReject }: { q: QuestionRequest; onAnswer: 
   const ready = q.questions.every((_, qi) => answerFor(qi).length > 0)
 
   return (
-    <div className="mb-2 rounded-xl border border-accent/40 bg-panel px-4 py-3" data-testid="question-card">
-      <div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-accent"><span>❓</span><span>OpenDante fragt nach</span></div>
+    <div className="attn mb-2 rounded-xl border-2 border-accent bg-accent/10 px-4 py-3" data-testid="question-card">
+      <div className="mb-1 flex items-center gap-2 text-[14px] font-semibold text-accent">
+        <span className="size-2 shrink-0 animate-pulse rounded-full bg-accent motion-reduce:animate-none" aria-hidden />
+        <span>❓ OpenDante fragt nach — bitte antworten</span>
+      </div>
       <div className="flex flex-col gap-3">
         {q.questions.map((item, qi) => (
           <div key={qi}>

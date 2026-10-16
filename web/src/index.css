@@ -25,3 +25,10 @@ textarea { font-family: inherit; }
 .mono { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace; }
 .btn-accent { border-radius: 0.5rem; background: var(--color-accent); color: #1a1410; font-size: 14px; font-weight: 500; padding: 0.375rem 0.75rem; }
 .btn-accent:disabled { opacity: .4; }
+
+/* A card that needs the user's attention (a permission prompt, a question): it slides in briefly and glows gently so
+   it is not mistaken for the quiet status cards. The glow repeats a few times, then holds. */
+@keyframes attn-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes attn-glow { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent); } 50% { box-shadow: 0 0 22px -2px color-mix(in srgb, var(--color-accent) 55%, transparent); } }
+.attn { animation: attn-in .22s ease-out, attn-glow 1.6s ease-in-out 3; }
+@media (prefers-reduced-motion: reduce) { .attn { animation: none; } }
