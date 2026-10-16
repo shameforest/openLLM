@@ -1,6 +1,7 @@
 import { splitThinking } from './stream'
 import { hideOffloadMarkers } from './claude'
 import type { Msg } from './messages'
+import { Markdown } from './Markdown'
 
 // One chat entry. Assistant entries show ONLY the final answer: thinking, tool steps and the <<<CLAUDE handoff text
 // live in the Gedankengang sidebar.
@@ -17,7 +18,7 @@ export function Bubble({ m, live = false, onShowThinking }: { m: Msg; live?: boo
     <div className="max-w-[640px] self-start" data-testid={isClaude ? 'claude-answer' : 'answer'}>
       <div className={`mb-1 text-[12px] font-medium ${isClaude ? 'text-sky-400' : 'text-accent'}`}>{isClaude ? 'Claude (bezahlt)' : 'OpenDante'}</div>
       {answer.trim() ? (
-        <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">{answer}{live && <Caret />}</div>
+        <Markdown text={answer} live={live} caret={<Caret />} />
       ) : waiting ? (
         <div className="text-[14px] text-ink3">
           <span className="italic">denkt nach…</span>

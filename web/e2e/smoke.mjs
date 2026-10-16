@@ -262,7 +262,7 @@ const permAsked = (id, command) => ({
   properties: { id, sessionID: SES, permission: 'bash', patterns: [command], metadata: { command }, always: [command.split(' ')[0] + ' *'], tool: { messageID: 'msg_asst1', callID: `call_${id}` } },
 })
 const permReplied = (id, reply) => ({ type: 'permission.replied', properties: { sessionID: SES, requestID: id, reply } })
-const ANSWER_PARTS = ['Ich habe ', 'rechner.py ', 'angelegt.']
+const ANSWER_PARTS = ['Ich habe ', 'rechner.py ', 'angelegt:\n\n```python\n', 'def add(a, b):\n    return a + b\n', '```\n\nFertig.']
 const ANSWER = ANSWER_PARTS.join('')
 const answerStart = () => [
   { type: 'message.updated', properties: { info: { id: 'msg_user1', sessionID: SES, role: 'user', agent: 'build' } } },
@@ -494,7 +494,12 @@ async function main() {
 
   // f ---------------------------------------------------------------------------------------------------------------
   await step('f. answer streams in, then "1 Datei geändert" with Ansehen → diff modal; Esc closes it', async () => {
-    await waitFor(async () => (await tid('answer').last().textContent({ timeout: 1000 }))?.includes(ANSWER), `answer text "${ANSWER}"`)
+    await waitFor(async () => (await tid('answer').last().textContent({ timeout: 1000 }))?.includes('rechner.py angelegt'), 'answer prose')
+    // OD-59: the answer renders Markdown — a code block with a copy button, not raw ``` text
+    await waitFor(() => page.getByTestId('code-block').count().then((n) => n >= 1), 'a rendered code block')
+    check((await page.getByTestId('code-block').first().textContent()).includes('return a + b'), 'expected the code block to contain the code')
+    check(await page.getByTestId('code-copy').first().isVisible(), 'expected a copy button on the code block')
+    check(!(await tid('answer').last().textContent()).includes('```'), 'expected no raw ``` fence in the rendered answer')
     check(await tid('stop').isVisible(), 'expected the turn to still be running while the answer streams')
     // OD-55: the live activity card shows what the agent is doing, independent of its task list
     await visible('activity-card', 'live activity card while running')
