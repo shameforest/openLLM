@@ -465,7 +465,7 @@ async function main() {
   })
 
   // d ---------------------------------------------------------------------------------------------------------------
-  await step('d. risky command (Remove-Item) is NOT auto-allowed: card shows, "Einmal erlauben" replies once', async () => {
+  await step('d. risky command (Remove-Item) is NOT auto-allowed: card shows; "Immer erlauben" replies once AND stores a standing grant (OD-63)', async () => {
     await visible('perm-card', 'permission card')
     check((await textOf('perm-detail')).includes(RISKY_CMD), `expected the card to show "${RISKY_CMD}"`)
     await sleep(700) // an auto-allow would answer within a few ms
@@ -473,10 +473,14 @@ async function main() {
     check(await tid('perm-card').first().isVisible(), 'expected the card to still be waiting')
     await shot('permission-card')
 
-    await tid('perm-once').click()
+    await tid('perm-always').click()
     await waitFor(() => mock.calls('oc', 'POST', /^\/permission\/per_risky\/reply$/).length, 'POST /permission/per_risky/reply')
     const r = mock.calls('oc', 'POST', /^\/permission\/per_risky\/reply$/)[0]
-    check(same(r.body, { reply: 'once' }), `expected {"reply":"once"}, got ${JSON.stringify(r.body)}`)
+    // OD-63: OpenDante owns the always-list, so OpenCode is told only "once" — never an opaque "always" rule we could not revoke.
+    check(same(r.body, { reply: 'once' }), `expected {"reply":"once"} (not "always"), got ${JSON.stringify(r.body)}`)
+    const stored = await page.evaluate(() => { try { return JSON.parse(localStorage.getItem('openllm.always') || '{}') } catch { return {} } })
+    const pats = Object.values(stored).flat().map((g) => g.pat)
+    check(pats.includes('Remove-Item *'), `expected a stored grant for "Remove-Item *", got ${JSON.stringify(pats)}`)
   })
 
   // e ---------------------------------------------------------------------------------------------------------------
@@ -528,7 +532,29 @@ async function main() {
   })
 
   // g ---------------------------------------------------------------------------------------------------------------
-  await step('g. Einstellungen opens with the think-off select; Esc closes it', async () => {
+  await step('g. OD-63: a second identical risky command is now answered by OpenDante itself (standing grant), no card', async () => {
+    // Same command as step d (same "Remove-Item *" pattern). Without the grant a risky command waits for a click; with it,
+    // OpenDante auto-answers "once" — so an automatic reply here, which we never click for, proves the grant took effect.
+    s.perms.push(permAsked('per_risky2', RISKY_CMD).properties)
+    mock.queue(permAsked('per_risky2', RISKY_CMD))
+    const reply = await waitFor(() => mock.calls('oc', 'POST', /^\/permission\/per_risky2\/reply$/)[0], 'automatic reply for the granted pattern')
+    check(same(reply.body, { reply: 'once' }), `expected an automatic {"reply":"once"} from the grant, got ${JSON.stringify(reply.body)}`)
+    await hidden('perm-card', 'permission card (grant answered it)')
+
+    // The "Dauer-Freigaben" dialog lists the grant and can revoke it.
+    await tid('plus').click()
+    await tid('open-always').click()
+    await visible('always-allowed', 'Dauer-Freigaben dialog')
+    check((await textOf('always-list')).includes('Remove-Item *'), 'expected the granted pattern listed')
+    await shot('always-allowed')
+    await tid('always-revoke').first().click()
+    await visible('always-empty', 'empty state after revoke')
+    await page.keyboard.press('Escape')
+    await hidden('always-allowed', 'Dauer-Freigaben dialog')
+  })
+
+  // h ---------------------------------------------------------------------------------------------------------------
+  await step('h. Einstellungen opens with the think-off select; Esc closes it', async () => {
     await tid('open-settings').click()
     await visible('settings')
     check((await tid('think-off').count()) === 1, 'expected exactly one think-off select')

@@ -20,6 +20,27 @@ export function describePermission(p: PermissionRequest): { title: string; detai
   }
 }
 
+// OD-63: a short German word for a permission kind, used where a stored grant is listed without its full detail.
+export function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'bash': return 'Befehl'
+    case 'edit': return 'Datei ändern'
+    case 'external_directory': return 'Ordner außerhalb des Projekts'
+    case 'webfetch': return 'Webseite abrufen'
+    case 'websearch': return 'Websuche'
+    case 'task': return 'Hilfs-Agent'
+    default: return kind
+  }
+}
+
+// OD-63: does this request match a pattern the user already chose "Immer erlauben" for (in the current folder)?
+// We match on OpenCode's own `always` patterns, so the same command/file type is recognised exactly as OpenCode would.
+export function matchesAlways(p: PermissionRequest, grants: { pat: string }[]): boolean {
+  if (!p.always?.length || !grants.length) return false
+  const set = new Set(grants.map((g) => g.pat))
+  return p.always.some((pat) => set.has(pat))
+}
+
 // Never answered automatically — the user decides:
 // - uploading or throwing work away (git push / reset --hard / clean / checkout -- / restore / branch -D / stash drop),
 // - deleting, also through aliases (ri, erase, rd …) and system-changing tools; most are also denied in opencode.json,

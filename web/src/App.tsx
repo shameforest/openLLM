@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { type Progress, type StepSample, type TaskSample, finishStep, reduceProgress, startProgress } from './progress'
 import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionMessages, sessionStatus, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
-import { LOOP_HINT, autoDecision, openCodeSafeDirs } from './requests'
+import { LOOP_HINT, autoDecision, matchesAlways, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
 import { companionPost, getProjectNote, saveImageAttachment } from './companion'
@@ -24,7 +24,8 @@ import { chatTitle, newChatId, useChats } from './chats'
 import { Modi } from './Modi'
 import { Settings } from './SettingsPanel'
 import { type Msg, CONTEXT_LIMIT, toThought, wroteFiles } from './messages'
-import { GIT_SKIP_KEY, STEPS_KEY, TASKS_KEY, loadList, saveList } from './storage'
+import { ALWAYS_KEY, GIT_SKIP_KEY, STEPS_KEY, TASKS_KEY, type AlwaysGrant, loadList, loadMap, saveList, saveMap } from './storage'
+import { AlwaysAllowed } from './AlwaysAllowed'
 import { DEMO, SIM_WPS } from './demo'
 import { ChatSidebar } from './ChatSidebar'
 import { Bubble } from './Bubble'
@@ -74,6 +75,8 @@ export default function App() {
   const [attachments, setAttachments] = useState<Attachment[]>([]) // files chosen for the next message ("Datei anhängen")
   const [projectNote, setProjectNote] = useState('') // OD-41: per-project memory, prepended to every prompt in this folder
   const [noteOpen, setNoteOpen] = useState(false)
+  const [always, setAlways] = useState<Record<string, AlwaysGrant[]>>(() => loadMap<AlwaysGrant>(ALWAYS_KEY)) // OD-63: folder → standing "Immer erlauben" grants
+  const [alwaysOpen, setAlwaysOpen] = useState(false)
   const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -330,19 +333,52 @@ export default function App() {
     await replyPermission(id, reply, modes.workdir, message).catch(() => {})
   }, [modes.workdir])
 
-  // Auto-answer: while "Befehle automatisch erlauben" is on, allow safe requests at once and turn a loop around with a
-  // hint, so a long task keeps moving. Risky ones (push, delete) still wait for the user. Runs for event- and poll-found
-  // requests alike; `autoReplied` guards against answering the same id twice.
+  // OD-63: record a standing "Immer erlauben" grant for the current folder. OpenDante keeps the list (so it can be shown
+  // and revoked under "Dauer-Freigaben"); matching requests are then answered by OpenDante itself with "einmal", instead
+  // of handing OpenCode an opaque rule we could no longer see or take back.
+  const grantAlways = useCallback((pats: string[], kind: string) => {
+    if (!pats.length) return
+    setAlways((a) => {
+      const have = a[effectiveDir] ?? []
+      const add = pats.filter((p) => !have.some((g) => g.pat === p)).map((p) => ({ pat: p, kind, at: Date.now() }))
+      if (!add.length) return a
+      const next = { ...a, [effectiveDir]: [...have, ...add] }
+      saveMap(ALWAYS_KEY, next)
+      return next
+    })
+  }, [effectiveDir])
+  const revokeAlways = useCallback((pat: string) => setAlways((a) => {
+    const next = { ...a, [effectiveDir]: (a[effectiveDir] ?? []).filter((g) => g.pat !== pat) }
+    saveMap(ALWAYS_KEY, next); return next
+  }), [effectiveDir])
+  const clearAlways = useCallback(() => setAlways((a) => { const next = { ...a, [effectiveDir]: [] }; saveMap(ALWAYS_KEY, next); return next }), [effectiveDir])
+
+  // From the card: "Immer erlauben" becomes a stored grant plus a one-off yes; "Einmal"/"Ablehnen" go straight through.
+  const onPermissionReply = useCallback((id: string, reply: 'once' | 'always' | 'reject', message?: string) => {
+    if (reply === 'always') {
+      const p = perms.find((x) => x.id === id)
+      if (p) grantAlways(p.always ?? [], p.permission)
+      void answerPerm(id, 'once', message)
+      return
+    }
+    void answerPerm(id, reply, message)
+  }, [perms, grantAlways, answerPerm])
+
+  // Auto-answer: honour a standing "Immer erlauben" grant first (the user's own rule, even if general auto-allow is off);
+  // then, while "Befehle automatisch erlauben" is on, allow safe requests at once and turn a loop around with a hint, so
+  // a long task keeps moving. Risky ones (push, delete) still wait. Runs for event- and poll-found requests alike;
+  // `autoReplied` guards against answering the same id twice.
   useEffect(() => {
-    if (!modes.autoAllow) return
     for (const p of perms) {
       if (autoReplied.current.has(p.id)) continue
+      if (matchesAlways(p, always[effectiveDir] ?? [])) { autoReplied.current.add(p.id); void answerPerm(p.id, 'once'); continue }
+      if (!modes.autoAllow) continue
       const d = autoDecision(p, effectiveDir, safeDirs)
       if (!d) continue
       autoReplied.current.add(p.id)
       void answerPerm(p.id, d.reply, 'message' in d ? d.message : undefined)
     }
-  }, [perms, modes.autoAllow, answerPerm, effectiveDir, safeDirs])
+  }, [perms, modes.autoAllow, answerPerm, effectiveDir, safeDirs, always])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, run])
 
@@ -700,7 +736,7 @@ export default function App() {
             </div>
             {(perms.length > 0 || questions.length > 0) && (
               <RequestCard perms={perms} questions={questions} autoAllow={modes.autoAllow} workdir={effectiveDir} safeDirs={safeDirs}
-                onPermission={(id, reply, msg) => void answerPerm(id, reply, msg)}
+                onPermission={onPermissionReply}
                 onQuestion={(id, answers) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void replyQuestion(id, answers, modes.workdir).catch(() => {}) }}
                 onReject={(id) => { setQuestions((xs) => xs.filter((x) => x.id !== id)); void rejectQuestion(id, modes.workdir).catch(() => {}) }} />
             )}
@@ -769,6 +805,7 @@ export default function App() {
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setFilePickerOpen(true); setPlusOpen(false) }} data-testid="attach-file">📎 Datei anhängen… <span className="text-ink3">(Bilder auch mit Strg+V oder Ziehen)</span></button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setPickerOpen(true); setPlusOpen(false) }} data-testid="pick-folder">📁 Ordner hinzufügen…</button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setNoteOpen(true); setPlusOpen(false) }} data-testid="open-note" title="Dauerhafter Projekt-Kontext, der jeder Nachricht vorangestellt wird">📓 Projektnotiz{projectNote.trim() ? ' ✓' : '…'}</button>
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setAlwaysOpen(true); setPlusOpen(false) }} data-testid="open-always" title="Dauerhaft erlaubte Befehle/Dateien ansehen und widerrufen">🔓 Dauer-Freigaben{(always[effectiveDir]?.length) ? ` (${always[effectiveDir].length})` : '…'}</button>
                     {modes.folders.length > 0 && (
                       <div className="mt-1 border-t border-line pt-1">
                         <div className="px-3 py-1 text-[11px] uppercase tracking-wider text-ink3">Arbeitsordner</div>
@@ -832,6 +869,7 @@ export default function App() {
       </main>
       <ProjectNote open={noteOpen} workdir={modes.workdir} onClose={() => setNoteOpen(false)} onSaved={(n) => setProjectNote(n)}
         onLearn={() => { setNoteOpen(false); void send({ text: 'Lerne dieses Projekt kennen: Sieh dir die wichtigsten Dateien an (README, package.json o. Ä., Einstiegspunkte, Ordnerstruktur) und schreibe eine KURZE Projektnotiz (Markdown, höchstens ~25 Zeilen) mit Zweck, Aufbau, wichtigen Befehlen (Start/Test/Build) und Konventionen. Lege den Ordner .opendante an, falls nötig, und speichere die Notiz in .opendante/projektnotiz.md. Gib am Ende nur einen kurzen Satz aus, dass die Notiz geschrieben wurde.', agent: 'build' }) }} />
+      <AlwaysAllowed open={alwaysOpen} dir={effectiveDir} grants={always[effectiveDir] ?? []} onClose={() => setAlwaysOpen(false)} onRevoke={revokeAlways} onClearAll={clearAlways} />
       <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFolders} />
       <FilePicker open={filePickerOpen} onClose={() => setFilePickerOpen(false)} onPick={addAttachments} />
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />

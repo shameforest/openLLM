@@ -127,6 +127,7 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `ollama.ts` | `/api/ps`, `keepWarm`, `preload` (throws on HTTP error), load-time learning (`openllm.loadms`), `loadPct` |
 | `requests.ts` | German permission texts, **`autoDecision`** (auto-allow policy), path checks, one-liner check; also used by the Testlauf |
 | `RequestCard.tsx` | Permission card (Einmal / Immer / Ablehnen, loop: "Anders weitermachen") and question card |
+| `AlwaysAllowed.tsx` | OD-63 "Dauer-Freigaben" dialog: list + revoke the "Immer erlauben" grants OpenDante stores per folder |
 | `messages.ts` | `Msg` type, `CONTEXT_LIMIT` (from opencode.json), `wroteFiles`, `toThought` |
 | `Bubble.tsx`, `ThinkingSidebar.tsx`, `TodoCard.tsx`, `ActivityCard.tsx`, `TurnActions.tsx`, `diffs.ts` | Answer bubble, thinking sidebar, task list, live activity card (OD-55: current action + files, from `run.turn.tools`), undo/diff/plan buttons, diff cleanup |
 | `loops.ts` | Loop detector (3 same errors / A-B oscillation / 4× same call) → "Anders weitermachen" |
@@ -190,6 +191,15 @@ Since 2026-10-16 (AN-04) layer 2 judges each part of a command in a **canonical 
 reads `cd` in order, treats `$env:`/`$HOME` paths as outside, asks for unknown request kinds, and the safe dirs are only
 OpenCode's `plans`, `tool-output`, state and `%TEMP%\opencode` folders. Layer 1 passes variants like `python -B -c` on to
 layer 2 (`python * -c*` ask). Regression check: `requests.test.ts` (27 tests) + 142 real agent commands from the session DB.
+
+**Layer 0 — standing grants (OD-63):** before layers 1/2, the UI honours the user's own "Immer erlauben". OpenDante owns
+this list, not OpenCode: clicking "Immer erlauben" stores OpenCode's offered pattern (e.g. `Remove-Item *`) per working
+folder (`openllm.always` in localStorage, `AlwaysGrant{pat,kind,at}`) and replies to OpenCode with **once**, not `always`
+— so there is never an opaque server-side rule we could not show or revoke. A later request whose `always` patterns match a
+stored grant (`matchesAlways()` in requests.ts) is auto-answered **once**, **even when autoAllow is off** (the user's own
+rule outranks the general switch). The "🔓 Dauer-Freigaben" dialog (`AlwaysAllowed.tsx`, in the "+" menu) lists a folder's
+grants with kind + date and revokes one or all. This closes the earlier gap that "Immer erlauben" was invisible and
+irrevocable. Tested: `matchesAlways`/`kindLabel` in `requests.test.ts`, `AlwaysAllowed.test.tsx`, and e2e steps d/g.
 
 ---------------------------------------------------------------------------------------------------------------------
 

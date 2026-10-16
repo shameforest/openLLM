@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PermissionRequest } from './api'
-import { LOOP_HINT, autoDecision, describePermission, harmlessOneLiner, openCodeSafeDirs, pathsOutside, whyAsked } from './requests'
+import { LOOP_HINT, autoDecision, describePermission, harmlessOneLiner, kindLabel, matchesAlways, openCodeSafeDirs, pathsOutside, whyAsked } from './requests'
 
 const req = (permission: string, metadata: Record<string, unknown> = {}, patterns: string[] = []): PermissionRequest =>
   ({ id: 'per_1', sessionID: 'ses_1', permission, metadata, patterns, always: [] })
@@ -12,6 +12,25 @@ describe('describePermission', () => {
     expect(describePermission(req('external_directory', {}, ['C:/Users/x/*'])).title).toMatch(/außerhalb des Projekts/)
     expect(describePermission(req('doom_loop', { tool: 'bash' })).title).toMatch(/im Kreis/)
     expect(describePermission(req('lsp')).title).toBe('möchte „lsp“ verwenden')
+  })
+})
+
+describe('matchesAlways (OD-63 standing grants)', () => {
+  const withAlways = (pats: string[]): PermissionRequest => ({ ...req('bash', { command: 'npm run build' }), always: pats })
+  it('matches when a request pattern is among the granted ones', () => {
+    expect(matchesAlways(withAlways(['npm *']), [{ pat: 'npm *' }])).toBe(true)
+    expect(matchesAlways(withAlways(['npm *', 'npm run *']), [{ pat: 'npm run *' }])).toBe(true)
+  })
+  it('does not match a different or empty grant set', () => {
+    expect(matchesAlways(withAlways(['npm *']), [{ pat: 'git push *' }])).toBe(false)
+    expect(matchesAlways(withAlways(['npm *']), [])).toBe(false)
+    expect(matchesAlways(withAlways([]), [{ pat: 'npm *' }])).toBe(false)
+  })
+  it('gives a plain German word for each permission kind', () => {
+    expect(kindLabel('bash')).toBe('Befehl')
+    expect(kindLabel('edit')).toMatch(/Datei/)
+    expect(kindLabel('external_directory')).toMatch(/außerhalb/)
+    expect(kindLabel('lsp')).toBe('lsp')
   })
 })
 
