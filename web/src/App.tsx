@@ -10,13 +10,13 @@ import { detectLoop } from './loops'
 import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
 import { type StoredMessage, type Turn, emptyTurn, eventSession, lastTurn, produced, reduceEvent, splitThinking, turnFromMessages } from './stream'
-import { AUTOPILOT_PREFIX, localModelName, useSettings } from './settings'
+import { AUTOPILOT_PREFIX, OFFLOAD_SHARE_MAX, localModelName, useSettings } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
 import { type Attachment, IMAGE_HINT, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
-import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadTasks } from './claude'
-import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact } from './usage'
+import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadAllowed, offloadBudget, offloadTasks } from './claude'
+import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, turnTokens } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
 import { chatTitle, newChatId, useChats } from './chats'
 import { Modi } from './Modi'
@@ -62,7 +62,7 @@ export default function App() {
   const [, setTick] = useState(0)
   const modes = useSettings()
   const skills = useSkills()
-  const modesActive = [modes.autopilot, modes.offload, modes.audit].filter(Boolean).length
+  const modesActive = [modes.autopilot, modes.offloadShare > 0, modes.audit].filter(Boolean).length
   const [modiOpen, setModiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
@@ -372,7 +372,11 @@ export default function App() {
         })
       }
     }
-    if (!t.error && t.text.trim() && (modes.offload || modes.audit)) void postProcessClaude(t)
+    // Hand suitable work to Claude — but never for the offline demo or a turn the user stopped (AN-08).
+    if (!run.sim && !run.stopped && !run.gap && !t.error && t.text.trim() && (modes.offloadShare > 0 || modes.audit)) {
+      const localTotal = usageRef.current.local + turnTokens(t).tokens
+      void postProcessClaude(t, localTotal)
+    }
     // Learn how long steps and tasks take on this PC (real runs only; a step cut off by "Stopp" is not a fair sample).
     if (!run.sim && !run.gap && !t.error && produced(t) > 0) {
       const fin = run.stopped ? run.prog : finishStep(run.prog, Date.now())
@@ -441,7 +445,7 @@ export default function App() {
         const asked = expandSkillCommand(prompt, skills.list) // turn a /skillname command into a skill instruction
         let text = asked
         if (modes.autopilot) text = AUTOPILOT_PREFIX + text
-        if (modes.offload) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
+        if (modes.offloadShare > 0) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message
         const title = chatRef.current.title
@@ -474,26 +478,38 @@ export default function App() {
     setMessages((m) => { const i = m.findIndex((x) => x.pending); if (i < 0) return [...m, final]; const c = [...m]; c[i] = final; return c })
 
   // After a local answer: (auto) send marked subtasks to Claude, and/or have Claude audit the whole result. Paid API.
-  // Each finished call adds its exact API token usage to the chat counter above the chat box right away.
-  async function postProcessClaude(t: Turn) {
+  // Each finished call adds its exact API token usage to the chat counter above the chat box right away. `localTotal` =
+  // the task's local tokens so far; the slider's share caps how much Claude output may be added on top (budget), and a
+  // safety gate keeps sensitive or policy-risky blocks local no matter what the local model marked.
+  async function postProcessClaude(t: Turn, localTotal: number) {
     const text = splitThinking(t.text).answer || t.text // review/offload the final answer, not the thinking
-    if (modes.offload) {
+    const myChat = chatRef.current?.id // a Claude reply must land in the chat it belongs to, not whichever is open now
+    const inChat = (final: Msg) => { if (chatRef.current?.id === myChat) finishClaude(final) }
+    if (modes.offloadShare > 0) {
+      let claudeOut = usageRef.current.claudeOut
       for (const task of offloadTasks(text)) {
-        setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '↗ Claude bearbeitet eine Teilaufgabe …', pending: true }])
+        const gate = offloadAllowed(task)
+        if (!gate.ok) { if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: `↗ Teilaufgabe ${gate.reason}` }]); continue }
+        if (offloadBudget(modes.offloadShare, localTotal, claudeOut) < 50) { // share of the task reached
+          if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: `↗ Claude-Budget für diese Aufgabe erreicht (${Math.round(modes.offloadShare * 100)} %) – den Rest macht das lokale Modell.` }])
+          break
+        }
+        if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '↗ Claude bearbeitet eine Teilaufgabe …', pending: true }])
         try {
           const r = await claudeOffload(task, modes.claudeModel, modes.claudeDailyUsd)
+          claudeOut += r.usage?.output_tokens ?? 0
           setUsage((u) => addClaude(u, 'offload', r.usage))
-          finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` })
-        } catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
+          inChat({ role: 'assistant', kind: 'claude', text: `↗ Teilergebnis von Claude (${r.model}):\n\n${r.text}` })
+        } catch (e) { inChat({ role: 'assistant', kind: 'claude', text: `↗ Claude-Auslagerung ging nicht: ${String((e as Error).message || e)}` }) }
       }
     }
     if (modes.audit) {
-      setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '🔍 Claude prüft das Ergebnis …', pending: true }])
+      if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: '🔍 Claude prüft das Ergebnis …', pending: true }])
       try {
         const r = await claudeAudit(text, modes.claudeModel, modes.claudeDailyUsd)
         setUsage((u) => addClaude(u, 'audit', r.usage))
-        finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` })
-      } catch (e) { finishClaude({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
+        inChat({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` })
+      } catch (e) { inChat({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
     }
   }
 
@@ -618,20 +634,28 @@ export default function App() {
 
         <div className="border-t border-line bg-bg px-6 py-4">
           <div className="mx-auto max-w-[760px]">
-            {(modes.offload || modes.audit) && (
-              modes.apiKey.trim() ? (
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                  <div className="min-w-0 flex-1 text-[12px] text-sky-400/80">
-                    Automatisch über Claude ({modes.claudeModel}): {modes.offload && 'unbedenkliche Teilaufgaben werden ausgelagert'}{modes.offload && modes.audit && ' · '}{modes.audit && 'das Ergebnis wird am Ende geprüft'}. Kostet API-Gebühren.
-                  </div>
-                  <UsageReadout u={shownUsage} />
-                </div>
+            {/* Claude-Hilfe: the slider sets how much of a task may go to Claude; a safety gate decides WHAT may leave. */}
+            <div className="mb-2" data-testid="offload-row">
+              <div className="flex items-center gap-3">
+                <label htmlFor="offload-share" className="shrink-0 text-[12px] text-ink2" title="Wie viel der Aufgabe darf der stärkere Claude übernehmen? Nur unbedenkliche, in sich geschlossene Teile; Sensibles bleibt lokal.">↗ Claude-Hilfe</label>
+                <input id="offload-share" type="range" min={0} max={Math.round(OFFLOAD_SHARE_MAX * 100)} step={5}
+                  value={Math.round(modes.offloadShare * 100)} onChange={(e) => modes.set({ offloadShare: Number(e.target.value) / 100 })}
+                  className="h-1 min-w-0 flex-1 cursor-pointer accent-accent" data-testid="offload-share" aria-label="Anteil an Claude" />
+                <span className="mono w-9 shrink-0 text-right text-[12px] text-ink2" data-testid="offload-share-value">{Math.round(modes.offloadShare * 100)} %</span>
+              </div>
+              {modes.offloadShare > 0 && !modes.apiKey.trim() ? (
+                <div className="mt-1 text-[11px] text-amber-400/90">Dafür fehlt noch dein Claude-Schlüssel — Einstellungen → Claude-Verbindung. Bis dahin bleibt alles lokal.</div>
               ) : (
-                <div className="mb-2 text-[12px] text-amber-400/90">
-                  Für diesen Modus fehlt noch dein Claude-Schlüssel — in Einstellungen → Claude-Verbindung eintragen. Bis dahin passiert nichts Zusätzliches.
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+                  <span className="min-w-0 flex-1 text-[11px] text-ink3">
+                    {modes.offloadShare === 0
+                      ? 'Aus — alles läuft lokal und kostenlos. Schiebe nach rechts, damit Claude unbedenkliche Teilaufgaben übernimmt (kostet API-Gebühren).'
+                      : `Bis zu ${Math.round(modes.offloadShare * 100)} % der Aufgabe dürfen an Claude (${modes.claudeModel}). Nur in sich geschlossene, unbedenkliche Teile — Sensibles bleibt lokal.`}
+                  </span>
+                  {(modes.offloadShare > 0 || modes.audit) && <UsageReadout u={shownUsage} />}
                 </div>
-              )
-            )}
+              )}
+            </div>
             {(perms.length > 0 || questions.length > 0) && (
               <RequestCard perms={perms} questions={questions} autoAllow={modes.autoAllow} workdir={effectiveDir} safeDirs={safeDirs}
                 onPermission={(id, reply, msg) => void answerPerm(id, reply, msg)}

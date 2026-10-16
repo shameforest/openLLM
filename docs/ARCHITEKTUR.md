@@ -195,10 +195,17 @@ layer 2 (`python * -c*` ask). Regression check: `requests.test.ts` (27 tests) + 
 
 ## 6. Claude modes (paid, need a key; never run for real yet)
 - **Autopilot** (free): prefix tells the local model to follow skill `batch-autopilot`. Effect never measured.
-- **Offload:** prefix asks the local model to wrap self-contained harmless subtasks in `<<<CLAUDE … >>>`; after the turn
-  each block goes to `POST /claude`; the result is shown as a bubble but **not fed back** to the local session (AN-11).
-- **Audit:** after each turn the answer *prose* (not the files the tools wrote) goes to Claude for review.
-- Spend: price table in the companion, daily cap per UTC day, but the cap value comes from the request (AN-10).
+- **Offload (slider "Claude-Hilfe", 0–50 %, above the prompt box, since 2026-10-16):** the slider sets a budget — how
+  much of a task may go to Claude, as a share of the combined work in tokens (`offloadBudget`). The local model still
+  marks self-contained benign subtasks with `<<<CLAUDE … >>>`; after the turn each real block (junk/echo/example dropped,
+  F22 fix) passes two gates — a content safety gate (`offloadAllowed` in the UI + `offloadBlocked` in the companion:
+  blocks explicit/face-swap, secrets, personal data) and the budget — then goes to `POST /claude {kind:'offload'}`.
+  Result shown as a bubble, **not yet fed back** (AN-11). **Measured 2026-10-16: the local 27B model does NOT reliably
+  emit offload markers** — on a suitable task it just did the work itself; so auto-offload rarely fires. A reliable
+  trigger would need an MCP tool the model calls; even then a capable small model may decline. Plumbing is solid; the
+  trigger is the open reliability question.
+- **Audit (toggle in Modi):** after each turn the answer *prose* (not the files the tools wrote) goes to Claude for review.
+- Spend: price table in the companion, daily cap per UTC day (the cap value still comes from the request — AN-10, open).
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -241,7 +248,7 @@ Status: open unless marked. Details and line numbers: `docs/analyse/2026-10-16/<
 | ID | Finding |
 |---|---|
 | AN-10 | Daily Claude cap is whatever the request sends (missing/0/empty field = no cap); check before the call, no lock → overshoot. Any local process (also the agent via `curl`) can call `/claude`, `/settings`, `/skills` without a token. (C-F5, C-F6, B-F23) |
-| AN-11 | Offload result never goes back to the local model; Audit reviews only prose, not the written files; Modi text says only harmless parts leave the PC (wrong for Audit); Offload prefix is sent even without a key; Claude results can land in another chat. (B-F17..F22, A-F6) |
+| AN-11 | **Partly fixed 2026-10-16**: Claude results now land in the chat they belong to (chat-id guard); the offload/audit post-processing no longer runs for the offline demo or a stopped turn; the wrong Modi privacy claim removed. **Still open**: the offloaded result is shown as a bubble, not fed back into the local session; Audit still reviews only the answer prose. (B-F17, F20) |
 | AN-12 | Preload overlay blocks the whole window with no timeout/cancel; a model switch during a load is ignored; preload does not check that the GPU is free (OpenDali). (A-F10, A-F11) |
 | AN-13 | Installer reports "Oberfläche gebaut" with a stale `web/dist` after a failed build (checks only that the file exists). (C-F11) |
 | AN-14 | Ollama env (KEEP_ALIVE, context) never reaches an already running Ollama; launcher neither restarts nor warns. (C-F15) |

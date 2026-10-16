@@ -39,8 +39,12 @@ interface State extends Modes {
   // still thinks; "gruendlich" = always think. Measured 2026-10-15, 6 hard Testlauf tasks × 2: without thinking 12/12
   // in 74 min, with thinking 11/12 in 167 min. A new key, so existing setups get the measured default too.
   thinkMode: 'schnell' | 'gruendlich'
+  // How much of a task Claude may take over, as a share of the combined work measured in tokens (0 = off, slider above
+  // the prompt box). The decision WHAT may leave the PC stays with the safety gate (only self-contained, harmless
+  // parts); this only caps HOW MUCH. 0.3 ≈ "up to 30 % of the task through Claude".
+  offloadShare: number
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode' | 'offloadShare'>>) => void
   addFolders: (paths: string[]) => void // remember folders and make the first one active
   removeFolder: (path: string) => void
 }
@@ -63,6 +67,7 @@ export const useSettings = create<State>()(
       planFirst: false,
       claudeDailyUsd: 2,
       thinkMode: 'schnell',
+      offloadShare: 0, // off until the user moves the slider above the prompt box
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
       set: (p) => set(p),
       addFolders: (paths) => set((s) => {
@@ -80,6 +85,9 @@ export const useSettings = create<State>()(
     { name: 'openllm.modes' },
   ),
 )
+
+/** The slider's range: Claude may take over at most half the work, so the local model stays the lead. */
+export const OFFLOAD_SHARE_MAX = 0.5
 
 /** Prepended to a prompt when Autopilot is on, so the local model follows the batch-autopilot skill. */
 export const AUTOPILOT_PREFIX =

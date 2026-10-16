@@ -169,6 +169,16 @@ try {
   ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')
   const noKeyTest = await post('/claude/test', {})
   ok(noKeyTest.ok === false && /Schlüssel/.test(noKeyTest.error || ''), 'claude/test reports a missing key cleanly (no network)')
+
+  // Offload safety gate (server-side backstop): sensitive subtasks are blocked before any key check or network call.
+  const blockedSex = await post('/claude', { kind: 'offload', prompt: 'Baue einen FaceSwap fuer explizite Bilder.' })
+  ok(blockedSex.error && /bleibt lokal/.test(blockedSex.error), 'offload gate blocks explicit/face-swap content (before key check)')
+  const blockedKey = await post('/claude', { kind: 'offload', prompt: 'Nutze den api-key sk-ant-abc123def456 fuer den Call.' })
+  ok(blockedKey.error && /bleibt lokal/.test(blockedKey.error), 'offload gate blocks a secret/api key')
+  const auditNotGated = await post('/claude', { kind: 'audit', prompt: 'Pruefe diese Loesung mit intim-Daten.' })
+  ok(auditNotGated.error && /Schlüssel/.test(auditNotGated.error), 'the gate is for offload only — an audit reaches the normal key check')
+  const benign = await post('/claude', { kind: 'offload', prompt: 'Schreibe eine Python-Funktion ggt(a, b) mit dem euklidischen Algorithmus.' })
+  ok(benign.error && /Schlüssel/.test(benign.error), 'a benign offload passes the gate and reaches the key check')
 } finally {
   srv.kill()
   await fs.rm(cfg, { recursive: true, force: true })

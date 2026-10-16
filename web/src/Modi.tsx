@@ -13,11 +13,6 @@ const ROWS: { key: keyof Modes; title: string; desc: string }[] = [
     desc: 'Für große Aufträge: OpenDante arbeitet in kleinen Schritten mit einem Gedächtnis-Dokument (FORTSCHRITT.md), erinnert sich selbst an den Ursprungsauftrag und den Stand und macht automatisch weiter — gegen Abschweifen und Vergessen.',
   },
   {
-    key: 'offload',
-    title: 'Mit Claude beschleunigen',
-    desc: 'Lagert automatisch in sich geschlossene, unbedenkliche Teilaufgaben an Claude aus und holt das Ergebnis zurück — ohne Eingabe deinerseits. Der lokale Agent entscheidet selbst, welchen harmlosen Teil er abgibt; dein Projektzusammenhang und Sensibles bleiben lokal. Braucht einen Claude-Schlüssel (Einstellungen) und kostet API-Gebühren.',
-  },
-  {
     key: 'audit',
     title: 'Claude-Audit (Abschlussprüfung)',
     desc: 'Lässt den fertigen Code/Text am Ende automatisch vom stärksten Claude-Modell (Opus/Sonnet, wählbar in den Einstellungen) prüfen — gezielt auf die typischen Schwächen kleiner Modelle und ob das Ergebnis wirklich lauffähig und fehlerfrei ist. Ein abschließendes Sicherheitsnetz. Braucht einen Claude-Schlüssel und kostet API-Gebühren.',
@@ -32,7 +27,7 @@ export function Modi({ open, onClose }: { open: boolean; onClose: () => void }) 
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-[560px] rounded-2xl border border-line bg-panel p-5" onClick={(e) => e.stopPropagation()} data-testid="modi">
         <div className="mb-1 text-[17px] font-semibold">Modi</div>
-        <p className="mb-4 text-[13px] text-ink3">Alles ist standardmäßig aus. Ohne diese Schalter läuft jede Aufgabe vollständig lokal in OpenDante.</p>
+        <p className="mb-4 text-[13px] text-ink3">Standardmäßig läuft jede Aufgabe vollständig lokal in OpenDante. Das Auslagern an Claude stellst du mit dem Regler „Claude-Hilfe“ über dem Eingabefeld ein.</p>
         <div className="flex flex-col divide-y divide-line">
           {ROWS.map((r) => (
             <div key={r.key} className="flex items-start justify-between gap-4 py-3">
@@ -45,7 +40,7 @@ export function Modi({ open, onClose }: { open: boolean; onClose: () => void }) 
           ))}
         </div>
         <p className="mt-4 text-[12px] text-ink3">
-          Beide Modi laufen <span className="text-ink2">automatisch über deinen Claude-Schlüssel</span> (Einstellungen → Claude-Verbindung) und kosten API-Gebühren — du musst pro Aufgabe nichts eingeben. Claude erhält dabei nur in sich geschlossene, unbedenkliche Teile, nie deinen ganzen Zusammenhang. Ohne hinterlegten Schlüssel passiert nichts Zusätzliches.
+          Das Audit läuft <span className="text-ink2">automatisch über deinen Claude-Schlüssel</span> (Einstellungen → Claude-Verbindung) und kostet API-Gebühren. Claude erhält dabei die fertige Antwort zur Prüfung. Ohne hinterlegten Schlüssel passiert nichts Zusätzliches.
         </p>
         <div className="mt-4 text-right">
           <button className="rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410]" onClick={onClose}>Fertig</button>
