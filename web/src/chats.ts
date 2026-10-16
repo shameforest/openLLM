@@ -36,6 +36,13 @@ export function chatTitle(firstPrompt: string): string {
   return one.length > 60 ? `${one.slice(0, 59).trimEnd()}…` : one || 'Neuer Chat'
 }
 
+/** OD-62: filter the Verlauf by a free-text query — case-insensitive substring of the chat title. Empty query → all. */
+export function filterChats<T extends { title: string }>(list: T[], q: string): T[] {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return list
+  return list.filter((c) => c.title.toLowerCase().includes(needle))
+}
+
 /** "vor 5 Min." / "gestern" / "12.10." — short German relative date for the Verlauf list. */
 export function relDate(ts: number, now = Date.now()): string {
   const min = Math.floor((now - ts) / 60000)

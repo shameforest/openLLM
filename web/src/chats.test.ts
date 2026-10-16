@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatTitle, newChatId, relDate } from './chats'
+import { chatTitle, filterChats, newChatId, relDate } from './chats'
 
 describe('chats helpers', () => {
   it('makes ids the companion accepts as file names', () => {
@@ -13,6 +13,14 @@ describe('chats helpers', () => {
     expect(long.length).toBe(60)
     expect(long.endsWith('…')).toBe(true)
     expect(chatTitle('   ')).toBe('Neuer Chat')
+  })
+  it('filters the Verlauf by a case-insensitive title substring, empty query → all (OD-62)', () => {
+    const list = [{ title: 'Taschenrechner bauen' }, { title: 'CSV einlesen' }, { title: 'rechner testen' }]
+    expect(filterChats(list, '').length).toBe(3)
+    expect(filterChats(list, '   ').length).toBe(3)
+    expect(filterChats(list, 'rechner').map((c) => c.title)).toEqual(['Taschenrechner bauen', 'rechner testen'])
+    expect(filterChats(list, 'CSV')).toEqual([{ title: 'CSV einlesen' }])
+    expect(filterChats(list, 'xyz')).toEqual([])
   })
   it('shows short German relative dates', () => {
     const now = new Date(2026, 9, 15, 12, 0).getTime()

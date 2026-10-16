@@ -1,8 +1,10 @@
-import type { RefObject } from 'react'
-import type { ChatMeta } from './chats'
+import { type RefObject, useState } from 'react'
+import { type ChatMeta, filterChats } from './chats'
 import type { SkillInfo } from './skills'
 import { localModelName } from './settings'
 import { HistoryItem } from './HistoryItem'
+
+const SEARCH_FROM = 7 // show the Verlauf search box only once the list is long enough to need it (OD-62)
 
 // The left column. State and effects stay in App; this only draws them and calls back (the names match the ones in App).
 export function ChatSidebar({ running, stopRun, startNewChat, setModiOpen, modesActive, setSettingsOpen, chats, activeChat, openChat, historyMsg, skills, setInput, inputRef, modes, online }: {
@@ -15,6 +17,8 @@ export function ChatSidebar({ running, stopRun, startNewChat, setModiOpen, modes
   modes: { workdir: string; localModel: string }
   online: boolean | null
 }) {
+  const [query, setQuery] = useState('')
+  const shown = filterChats(chats.list, query) // OD-62: title search, client-side
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
       <div className="flex items-center gap-2 px-4 py-4">
@@ -31,12 +35,22 @@ export function ChatSidebar({ running, stopRun, startNewChat, setModiOpen, modes
       <button className="mx-3 mb-3 rounded-lg border border-line px-3 py-2 text-left text-[14px] text-ink2 hover:bg-user"
         onClick={() => setSettingsOpen(true)} data-testid="open-settings">Einstellungen</button>
       <div className="px-4 py-1 text-[11px] uppercase tracking-wider text-ink3">Verlauf</div>
+      {chats.list.length >= SEARCH_FROM && (
+        <div className="relative mx-3 mb-1">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Verlauf durchsuchen…"
+            className="w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 pr-7 text-[13px] text-ink2 outline-none placeholder:text-ink3 focus:border-accent/60"
+            data-testid="history-search" aria-label="Verlauf durchsuchen" />
+          {query && <button className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-ink3 hover:text-ink2" onClick={() => setQuery('')} aria-label="Suche löschen" title="Suche löschen" data-testid="history-search-clear">✕</button>}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-3 text-[13px]" data-testid="history">
         {chats.list.length === 0 ? (
           <p className="px-1 py-2 text-ink3">{chats.loaded ? 'Noch keine Unterhaltungen.' : '…'}</p>
+        ) : shown.length === 0 ? (
+          <p className="px-1 py-2 text-ink3" data-testid="history-empty">Keine Treffer für „{query.trim()}".</p>
         ) : (
           <div className="flex flex-col gap-0.5 pb-2">
-            {chats.list.map((c) => (
+            {shown.map((c) => (
               <HistoryItem key={c.id} c={c} active={c.id === activeChat} disabled={running && c.id !== activeChat}
                 onOpen={() => void openChat(c.id)}
                 onRename={(title) => void chats.rename(c.id, title)}
