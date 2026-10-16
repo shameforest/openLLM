@@ -135,6 +135,12 @@ if (Test-Path $ocTarget) {
     Copy-Item -Force $ocTarget $ocBackup
 }
 Copy-Item -Force (Join-Path $Root "config\opencode.json") $cfgDir
+# The MCP offload tool (claude-helfer) runs from this install's companion folder. The committed config hardcodes
+# C:\openLLM; point it at the real $Root so OpenDante also works from another location.
+$mcpPath = (Join-Path $Root "companion\claude-mcp.mjs")
+$ocRaw = Get-Content -Raw -Encoding UTF8 $ocTarget
+$ocRaw = $ocRaw -replace [regex]::Escape('C:\\openLLM\\companion\\claude-mcp.mjs'), ($mcpPath -replace '\\', '\\')
+[IO.File]::WriteAllText($ocTarget, $ocRaw, (New-Object System.Text.UTF8Encoding($false)))
 if ($keepAnthropic) {
     $oc = Get-Content -Raw -Encoding UTF8 $ocTarget | ConvertFrom-Json
     $oc.provider | Add-Member -NotePropertyName anthropic -NotePropertyValue $keepAnthropic -Force

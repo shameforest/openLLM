@@ -32,13 +32,15 @@
     }
   },
   "mcp": {
-    "playwright": { "type": "local", "command": ["npx", "@playwright/mcp@latest"], "enabled": false }
+    "playwright": { "type": "local", "command": ["npx", "@playwright/mcp@latest"], "enabled": false },
+    "opendante": { "type": "local", "command": ["node", "C:\\openLLM\\companion\\claude-mcp.mjs"], "enabled": true }
   },
   "permission": {
     "edit": "allow",
     "webfetch": "allow",
     "websearch": "allow",
     "task": "deny",
+    "opendante_claude_helfer": "allow",
     "bash": {
       "*": "ask",
       "ls*": "allow", "dir*": "allow", "cat *": "allow", "type *": "allow", "grep *": "allow", "rg *": "allow", "find *": "allow", "echo *": "allow", "tree*": "allow", "pwd*": "allow", "head *": "allow", "tail *": "allow", "which *": "allow", "where *": "allow",

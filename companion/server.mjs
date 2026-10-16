@@ -381,6 +381,22 @@ async function addClaudeUsage(usd) {
   return next
 }
 
+// Offload preferences the UI keeps in sync (the "Claude-Hilfe" slider and the daily cap), so the MCP tool path
+// (companion/claude-mcp.mjs → POST /claude) honours the same on/off and budget as the UI, even though OpenCode calls
+// it without the browser in the loop. Stored in OpenDante's data dir, separate from the key.
+const PREFS_FILE = path.join(path.dirname(CHATS), 'claude-prefs.json')
+async function readPrefs() {
+  try { const p = JSON.parse(await fs.readFile(PREFS_FILE, 'utf8')); return { dailyUsd: Number(p.dailyUsd) || 0, offloadShare: Number(p.offloadShare) || 0 } }
+  catch { return { dailyUsd: 0, offloadShare: 0 } }
+}
+async function setPrefs({ offloadShare, dailyUsd }) {
+  await fs.mkdir(path.dirname(PREFS_FILE), { recursive: true })
+  const share = Math.max(0, Math.min(0.9, Number(offloadShare) || 0))
+  const cap = Math.max(0, Number(dailyUsd) || 0)
+  await fs.writeFile(PREFS_FILE, JSON.stringify({ offloadShare: share, dailyUsd: cap }))
+  return { ok: true, offloadShare: share, dailyUsd: cap }
+}
+
 // Second gate, server-side: a subtask the UI marked for offload (kind:'offload') must not leave the PC if it looks
 // sensitive or against Anthropic's usage policy. Mirrors offloadAllowed() in web/src/claude.ts (keep both in sync).
 // A heuristic backstop — the primary protection is the local model marking only self-contained, benign parts.
@@ -396,11 +412,15 @@ const offloadBlocked = (text) => OFFLOAD_SENSITIVE.some((re) => re.test(String(t
 /** One call to the Claude Messages API with the stored key. Used by the auto offload/audit modes. A daily cap in USD
  *  (`capUsd`, from Einstellungen; 0 = none) is enforced here, server-side, before each call. */
 async function callClaude({ system, prompt, model, capUsd, kind }) {
-  if (kind === 'offload' && offloadBlocked(prompt))
-    throw new Error('Teilaufgabe bleibt lokal: könnte Sensibles oder gegen Richtlinien Verstoßendes enthalten.')
+  if (kind === 'offload') {
+    // The MCP tool (claude-helfer) calls this without the browser; honour the gate and the slider here too. The safety
+    // gate comes first, so sensitive content always gets the "bleibt lokal" message even when offload is otherwise off.
+    if (offloadBlocked(prompt)) throw new Error('Teilaufgabe bleibt lokal: könnte Sensibles oder gegen Richtlinien Verstoßendes enthalten.')
+    if (!((await readPrefs()).offloadShare > 0)) throw new Error('Auslagern ist ausgeschaltet (Regler „Claude-Hilfe“ steht auf 0 %).')
+  }
   const stored = await readAnthropic()
   if (!stored.key) throw new Error('Kein Claude-Schlüssel gespeichert (Einstellungen → Claude-Verbindung → Speichern).')
-  const cap = Number(capUsd) || 0
+  const cap = Number(capUsd) || (await readPrefs()).dailyUsd || 0 // the MCP path sends no capUsd → use the stored cap
   if (cap > 0) {
     const u = await claudeUsage()
     if (u.usd >= cap) throw new Error(`Tageslimit für Claude erreicht (${u.usd.toFixed(2)} $ von ${cap.toFixed(2)} $). Ab Mitternacht (UTC) wieder frei, oder das Limit in den Einstellungen erhöhen.`)
@@ -489,8 +509,12 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req)
       await setGlobalInstructions(b.globalInstructions ?? '')
       await setAnthropic(b.apiKey ?? '', b.claudeModel)
+      if (b.offloadShare !== undefined || b.claudeDailyUsd !== undefined) await setPrefs({ offloadShare: b.offloadShare, dailyUsd: b.claudeDailyUsd })
       return sendJson(res, 200, { ok: true })
     }
+    // Lightweight: the "Claude-Hilfe" slider and the daily cap, so the MCP offload tool honours them (no AGENTS/key rewrite).
+    if (req.method === 'POST' && url.pathname === '/offload-prefs') { const b = await readBody(req); return sendJson(res, 200, await setPrefs(b)) }
+    if (req.method === 'GET' && url.pathname === '/offload-prefs') return sendJson(res, 200, await readPrefs())
     if (req.method === 'POST' && url.pathname === '/skills') {
       const b = await readBody(req)
       const slug = await saveSkill(b.name, b.content)

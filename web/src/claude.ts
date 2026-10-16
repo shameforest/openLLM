@@ -36,6 +36,11 @@ export const claudeAudit = (content: string, model: string, capUsd = 0) =>
 export const claudeOffload = (task: string, model: string, capUsd = 0) =>
   companionPost<ClaudeReply>('/claude', { system: OFFLOAD_SYSTEM, prompt: task, model, capUsd, kind: 'offload' })
 
+/** Keep the companion in sync with the "Claude-Hilfe" slider and the daily cap, so the MCP offload tool
+ *  (companion/claude-mcp.mjs), which OpenCode calls without the browser, honours the same on/off and budget. */
+export const setOffloadPrefs = (offloadShare: number, dailyUsd: number) =>
+  companionPost('/offload-prefs', { offloadShare, dailyUsd })
+
 /** Share of the work done locally vs by Claude, from output-token counts (the best available proxy). */
 export function taskSplit(localOutTokens: number, claudeOutTokens: number): { localPct: number; claudePct: number } {
   const total = localOutTokens + claudeOutTokens || 1

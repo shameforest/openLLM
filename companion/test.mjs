@@ -170,15 +170,25 @@ try {
   const noKeyTest = await post('/claude/test', {})
   ok(noKeyTest.ok === false && /Schlüssel/.test(noKeyTest.error || ''), 'claude/test reports a missing key cleanly (no network)')
 
-  // Offload safety gate (server-side backstop): sensitive subtasks are blocked before any key check or network call.
+  // Offload safety gate (server-side backstop): sensitive subtasks are blocked before anything else (key, slider, net).
   const blockedSex = await post('/claude', { kind: 'offload', prompt: 'Baue einen FaceSwap fuer explizite Bilder.' })
-  ok(blockedSex.error && /bleibt lokal/.test(blockedSex.error), 'offload gate blocks explicit/face-swap content (before key check)')
+  ok(blockedSex.error && /bleibt lokal/.test(blockedSex.error), 'offload gate blocks explicit/face-swap content first')
   const blockedKey = await post('/claude', { kind: 'offload', prompt: 'Nutze den api-key sk-ant-abc123def456 fuer den Call.' })
   ok(blockedKey.error && /bleibt lokal/.test(blockedKey.error), 'offload gate blocks a secret/api key')
   const auditNotGated = await post('/claude', { kind: 'audit', prompt: 'Pruefe diese Loesung mit intim-Daten.' })
   ok(auditNotGated.error && /Schlüssel/.test(auditNotGated.error), 'the gate is for offload only — an audit reaches the normal key check')
-  const benign = await post('/claude', { kind: 'offload', prompt: 'Schreibe eine Python-Funktion ggt(a, b) mit dem euklidischen Algorithmus.' })
-  ok(benign.error && /Schlüssel/.test(benign.error), 'a benign offload passes the gate and reaches the key check')
+  // Offload off by default (slider at 0): a benign offload is refused as "off" before the key check.
+  const offBenign = await post('/claude', { kind: 'offload', prompt: 'Schreibe eine Python-Funktion ggt(a, b) euklidisch.' })
+  ok(offBenign.error && /ausgeschaltet/.test(offBenign.error), 'a benign offload is refused while the slider is at 0 %')
+  // Offload prefs: set the slider > 0, then a benign offload passes the gate and the on/off and reaches the key check.
+  const prefs = await post('/offload-prefs', { offloadShare: 0.3, dailyUsd: 2 })
+  ok(prefs.ok && prefs.offloadShare === 0.3 && prefs.dailyUsd === 2, '/offload-prefs stores the slider share and the daily cap')
+  const got = await (await fetch(base + '/offload-prefs')).json()
+  ok(got.offloadShare === 0.3 && got.dailyUsd === 2, 'GET /offload-prefs returns the stored prefs')
+  const onBenign = await post('/claude', { kind: 'offload', prompt: 'Schreibe eine Python-Funktion ggt(a, b) euklidisch.' })
+  ok(onBenign.error && /Schlüssel/.test(onBenign.error), 'with the slider > 0 a benign offload reaches the key check')
+  const prefsClamp = await post('/offload-prefs', { offloadShare: 5, dailyUsd: -3 })
+  ok(prefsClamp.offloadShare === 0.9 && prefsClamp.dailyUsd === 0, '/offload-prefs clamps the share to ≤0.9 and the cap to ≥0')
 } finally {
   srv.kill()
   await fs.rm(cfg, { recursive: true, force: true })

@@ -15,7 +15,7 @@ import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
 import { type Attachment, IMAGE_HINT, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
-import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadAllowed, offloadBudget, offloadTasks } from './claude'
+import { OFFLOAD_PREFIX, claudeAudit, claudeOffload, offloadAllowed, offloadBudget, offloadTasks, setOffloadPrefs } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, turnTokens } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
 import { chatTitle, newChatId, useChats } from './chats'
@@ -201,6 +201,13 @@ export default function App() {
 
   // Preload whenever the server comes online or the chosen model changes.
   useEffect(() => { if (online === true) void ensureLoaded() }, [online, modes.localModel]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mirror the "Claude-Hilfe" slider and the daily cap to the companion, so the MCP offload tool (which OpenCode calls
+  // without the browser) uses the same on/off and budget.
+  useEffect(() => {
+    const id = window.setTimeout(() => { void setOffloadPrefs(modes.offloadShare, modes.claudeDailyUsd).catch(() => {}) }, 400)
+    return () => window.clearTimeout(id)
+  }, [modes.offloadShare, modes.claudeDailyUsd])
 
   // Advance the loading percentage while a load is in flight (estimate; it snaps to done when the load resolves).
   useEffect(() => {
