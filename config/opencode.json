@@ -109,6 +109,14 @@
         "C:\\openLLM\\companion\\claude-mcp.mjs"
       ],
       "enabled": true
+    },
+    "websearch": {
+      "type": "local",
+      "command": [
+        "node",
+        "C:\\openLLM\\companion\\websearch-mcp.mjs"
+      ],
+      "enabled": false
     }
   },
   "permission": {
