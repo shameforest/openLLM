@@ -74,6 +74,12 @@ localStorage `openllm.base` (OpenCode URL), `openllm.companion` (companion URL).
 3. Kill orphaned `llama-server.exe` whose parent Ollama is gone (added 2026-10-16 after 17 GB were held by orphans).
 4. Start `ollama serve` if :11434 is down (no readiness wait, no env check).
 5. Set `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS/EXTERNAL_SKILLS/AUTOUPDATE/SHARE=1` (prompt −46 %, pinned 1.x, no sharing).
+5b. **`sync-config.ps1` (OD-72):** copy the repo `config\opencode.json` into the installed `~\.config\opencode\` so a repo
+   config change (e.g. image support) reaches OpenCode on a normal restart — before this, only a full `install.ps1` re-run
+   did, so a stale config made the local models report `attachment:false` and silently drop attached images. Text-only
+   (PS 5.1 `ConvertFrom-Json` rejects the case-only-different bash keys `git branch -D*`/`-d*`), hash-gated (only rewrites
+   on a real repo change → step 6 then restarts OpenCode), validates with `opencode models` + rolls back. Drops any stray
+   anthropic block (the Claude key lives in `~/.opendante/claude-key.json`).
 6. If :4096 runs but the config is newer than the process or the launch signature changed → restart it, unless
    `GET /session/status` shows a busy session.
 7. If :4096 is down: validate config (`opencode models ollama`, error dialog on failure), start `opencode serve --port 4096` in `~\code`.
@@ -136,7 +142,7 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `settings.ts` | zustand store persisted as localStorage `openllm.modes` (all settings incl. the Claude key), model lists, `AUTOPILOT_PREFIX` |
 | `SettingsPanel.tsx`, `Modi.tsx`, `UsageOverview.tsx`, `UsageReadout.tsx`, `usage.ts` | Einstellungen dialog, the 4 mode switches, token overview, counters |
 | `claude.ts` | Offload/Audit prompts, `<<<CLAUDE … >>>` extraction, calls `POST /claude` |
-| `FolderPicker.tsx`, `FilePicker.tsx`, `fs.ts`, `attachments.ts` | In-app folder/file browser (companion `/fs`), attachments as file parts; **images** can be pasted (Ctrl+V) or dropped into the prompt box (companion `POST /attach` saves them) and the vision model reads them (OD-37: `attachment:true`+`modalities` per model in opencode.json) |
+| `FolderPicker.tsx`, `FilePicker.tsx`, `fs.ts`, `attachments.ts` | In-app folder/file browser (companion `/fs`), attachments as file parts; **images** can be pasted (Ctrl+V) or dropped into the prompt box (companion `POST /attach` saves them) and the vision model reads them (OD-37: `attachment:true`+`modalities` per model in opencode.json). OD-72: needs the INSTALLED config in sync (sync-config.ps1); if the running model still reports no image support (`listModelCaps`/`activeModelTakesImages` in api.ts, from `GET /config/providers`) the UI warns at attach time instead of failing silently |
 | `skills.ts`, `projects.ts`, `companion.ts`, `storage.ts`, `demo.ts`, `useEscape.ts` | Skills list + `/slug` expansion, GitHub projects/git, companion helper, localStorage helpers, offline demo text, Escape hook |
 
 Settings (`openllm.modes`): `autoAllow` **true**, `autopilot`/`offload`/`audit` false, `thinkMode` `schnell`,

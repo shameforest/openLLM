@@ -195,6 +195,9 @@ function createMock(appOrigin) {
       if (m === 'POST' && p === '/project/git/init') { s.git = true; return json(route, { id: 'global', worktree: '/', vcs: 'git' }) }
       if (m === 'GET' && p === '/permission') return json(route, s.perms)
       if (m === 'GET' && p === '/question') return json(route, s.questions)
+      // OD-72: the running OpenCode reports the local model's capabilities. Here it (deliberately) reports NO image
+      // support, so attaching an image must surface the "model can't read images" warning.
+      if (m === 'GET' && p === '/config/providers') return json(route, { providers: [{ id: 'ollama', models: { 'orcarouter/Qwen3.8-27B-Uncensored:q4_K_M': { capabilities: { attachment: false, input: { image: false } } } } }] })
       if (m === 'GET' && p === '/session/status') return json(route, {})
       if (m === 'POST' && p === '/session') return json(route, { id: SES })
       if (m === 'POST' && p === `/session/${SES}/prompt_async`) {
@@ -229,8 +232,9 @@ function createMock(appOrigin) {
       if (m === 'GET' && p === '/fs') {
         const dir = url.searchParams.get('path') || ''
         const files = url.searchParams.get('files') === '1'
-        if (!dir) return json(route, { path: '', parent: null, dirs: [{ name: 'demo', path: 'C:\\demo' }], ...(files ? { files: [] } : {}) })
+        if (!dir) return json(route, { path: '', parent: null, dirs: [{ name: 'demo', path: 'C:\\demo' }, { name: 'bilder', path: 'C:\\bilder' }], ...(files ? { files: [] } : {}) })
         if (dir === 'C:\\demo') return json(route, { path: 'C:\\demo', parent: 'C:\\', dirs: [], ...(files ? { files: [{ name: 'notiz.txt', path: 'C:\\demo\\notiz.txt', size: 120 }] } : {}) })
+        if (dir === 'C:\\bilder') return json(route, { path: 'C:\\bilder', parent: 'C:\\', dirs: [], ...(files ? { files: [{ name: 'bild.png', path: 'C:\\bilder\\bild.png', size: 2048 }] } : {}) })
         return json(route, { error: 'Ordner nicht lesbar: ENOENT' }, 404)
       }
     } else if (svc === 'ollama') {
@@ -620,6 +624,27 @@ async function main() {
     mock.queue({ type: 'session.status', properties: { sessionID: SES, status: { type: 'idle' } } })
     await hidden('full-auto-banner', 'Voll-Automatik banner after the run')
     await visible('full-auto', 'Voll-Automatik button back (disarmed)')
+  })
+
+  // k ---------------------------------------------------------------------------------------------------------------
+  await step('k. OD-72: attaching an image while the local model reports no image support shows a clear warning', async () => {
+    await tid('plus').click()
+    await visible('plus-menu')
+    await tid('attach-file').click()
+    await visible('file-picker')
+    await tid('fp-open').filter({ hasText: 'bilder' }).click()
+    await waitText('fp-here', /C:\\bilder$/, 'current folder C:\\bilder')
+    await visible('fp-file-name', 'file bild.png')
+    await tid('fp-check').check()
+    await tid('fp-confirm').click()
+    await hidden('file-picker', 'file picker')
+    await visible('attachment-chip')
+    check((await textOf('attachment-chip')).includes('bild.png'), 'expected the chip to say bild.png')
+    // the running model reports no image support → warn clearly instead of silently sending text-only
+    await visible('image-unsupported', 'image-not-supported warning')
+    check(/keine Bilder/.test(await textOf('image-unsupported')), 'expected the warning to say the model reads no images')
+    await shot('image-unsupported')
+    await tid('attachment-remove').click() // clean up for the safety-net step
   })
 
   // safety nets -----------------------------------------------------------------------------------------------------

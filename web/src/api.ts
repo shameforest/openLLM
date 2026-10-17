@@ -101,6 +101,23 @@ export const gitInit = (dir?: string) => call<{ vcs?: string }>(`/project/git/in
 
 /** The server's own folders; `directory` is where the agent works when no folder is chosen. */
 export const serverPaths = (dir?: string) => call<{ home: string; state: string; config: string; directory: string }>(`/path${dirQuery(dir)}`)
+
+/** What a model can take/do, as the running OpenCode reports it (depends on the installed opencode.json). */
+export interface ModelCaps { attachment: boolean; image: boolean }
+interface ProviderList { providers?: { id: string; models?: Record<string, { capabilities?: { attachment?: boolean; input?: { image?: boolean } } }> }[] }
+/** Flatten GET /config/providers into "providerID/modelID" → caps. Pure, so the image-support check is unit-testable. */
+export function modelCapsFrom(data: ProviderList): Record<string, ModelCaps> {
+  const m: Record<string, ModelCaps> = {}
+  for (const p of data.providers ?? []) for (const [id, md] of Object.entries(p.models ?? {})) m[`${p.id}/${id}`] = { attachment: !!md.capabilities?.attachment, image: !!md.capabilities?.input?.image }
+  return m
+}
+/** Does the active model accept images? true/false, or null when we don't know yet (caps not loaded) — then don't warn. */
+export function activeModelTakesImages(caps: Record<string, ModelCaps>, provider: string, modelId: string): boolean | null {
+  const c = caps[`${provider}/${modelId}`]
+  return c ? c.image : null
+}
+/** The running OpenCode's model capabilities. Empty map on any error, so a hiccup never blocks sending. */
+export const listModelCaps = () => call<ProviderList>(`/config/providers`).then(modelCapsFrom).catch(() => ({} as Record<string, ModelCaps>))
 /** busy / idle / retry (after a model error, with attempt and reason) for every session in the folder. */
 export const sessionStatus = (dir?: string) => call<Record<string, SessionStatus>>(`/session/status${dirQuery(dir)}`)
 /** All messages of a session with their parts — used to re-sync when live events were missed. */

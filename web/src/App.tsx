@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { type Progress, type StepSample, type TaskSample, finishStep, reduceProgress, startProgress } from './progress'
-import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionMessages, sessionStatus, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
+import { type FileDiff, type ModelCaps, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, activeModelTakesImages, connectEvents, createSession, health, listModelCaps, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionMessages, sessionStatus, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
 import { LOOP_HINT, autoDecision, fullAutoDecision, matchesAlways, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
@@ -246,6 +246,7 @@ export default function App() {
   const autoRejectedQ = useRef<Set<string>>(new Set()) // question ids auto-skipped in Full Auto, so we never answer twice
   const [serverDir, setServerDir] = useState('') // the server's own folder, used when no working folder is chosen
   const [safeDirs, setSafeDirs] = useState<string[]>([]) // OpenCode's own data/state folders (plan mode writes plans there)
+  const [modelCaps, setModelCaps] = useState<Record<string, ModelCaps>>({}) // OD-72: what the running OpenCode says each model can take (image?)
   const effectiveDir = modes.workdir || serverDir
   // Is the working folder a git repository? Only there does OpenCode keep file snapshots, i.e. the list of changed
   // files and "Rückgängig" work. null = not known yet. Folders where the user said "Nicht mehr fragen" are remembered.
@@ -324,6 +325,7 @@ export default function App() {
         disconnect = connectEvents(feed, (ok) => setOnline(ok), modes.workdir); syncRequests()
         void resyncRun(true) // a turn running across a reconnect may have ended unseen
         void serverPaths().then((p) => { if (alive) { setServerDir(p.directory || ''); setSafeDirs(openCodeSafeDirs(p)) } }).catch(() => {})
+        void listModelCaps().then((c) => { if (alive) setModelCaps(c) }) // OD-72: so we can warn if the running model can't read images
       }
     })
     check()
@@ -870,6 +872,13 @@ export default function App() {
                   </span>
                 ))}
                 {attaching > 0 && <span className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-panel px-2.5 py-1 text-[12px] text-ink3" data-testid="attachment-pending">🖼 Bild wird angehängt…</span>}
+              </div>
+            )}
+            {/* OD-72: fail loud — if the running OpenCode reports no image support for the active local model, say so
+                instead of silently sending text-only and getting "I can't read images". Usually a stale config → restart. */}
+            {attachments.some((a) => isImageName(a.name)) && activeModelTakesImages(modelCaps, 'ollama', modes.localModel) === false && (
+              <div className="mb-2 rounded-xl border border-amber-400/50 bg-panel px-4 py-2.5 text-[13px]" data-testid="image-unsupported">
+                <span className="text-amber-300">⚠ Das aktive lokale Modell liest gerade keine Bilder. Bitte OpenDante einmal neu starten (Desktop-Icon) — sonst wird das Bild ignoriert und das Modell antwortet, es könne keine Bilder lesen.</span>
               </div>
             )}
             <div className={`flex items-end gap-2 rounded-2xl border bg-panel px-3 py-2 ${dragOver ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}

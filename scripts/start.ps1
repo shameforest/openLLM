@@ -67,6 +67,14 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Root "logs") | Out-Null
 $opencode = (Get-Command opencode -ErrorAction SilentlyContinue).Source
 if (-not $opencode) { Note "OpenCode wurde nicht gefunden. Bitte scripts\install.ps1 ausfuehren."; exit 1 }
 
+# OD-72: bring the installed config up to the repo (image support etc.) on every launch, so a change does not need a full
+# install.ps1 re-run. Only rewrites when the repo config changed (hash-gated), and the $cfgNewer check below then restarts
+# OpenCode to pick it up. Keeps the Claude key + MCP path. On a validation failure it keeps the old config and warns.
+try {
+    $syncOut = (& (Join-Path $PSScriptRoot "sync-config.ps1") -Root $Root -OpenCode $opencode 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -eq 2) { Note ("Das Config-Update (u. a. Bild-Unterstuetzung) konnte nicht angewendet werden:`n$syncOut`n`nBitte scripts\install.ps1 erneut ausfuehren.") }
+} catch { }
+
 # OpenCode reads its config and these switches only when it starts. If it is older than the config (an update ran) or
 # was started with other switches, restart it — unless a task is running. Otherwise an update stays inactive, and a
 # broken config stays hidden until the next PC restart.
