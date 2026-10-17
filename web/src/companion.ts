@@ -33,3 +33,29 @@ export async function getProjectNote(dir: string): Promise<{ note: string }> {
 }
 export const saveProjectNote = (path: string, content: string) =>
   companionPost<{ ok: boolean; chars: number }>('/project-note', { path, content })
+
+// ---- Projektordner (OD-73): name/description, knowledge items, local search, and the context prepended to a prompt ----
+export interface ProjectMeta { name: string; description: string; createdAt: number | null }
+export interface KnowledgeItem { id: string; name: string; chars: number; addedAt: number }
+export interface KnowledgeList { items: KnowledgeItem[]; chars: number; tokens: number }
+export interface KnowledgeContext { text: string; mode: 'none' | 'all' | 'search'; tokens: number; used: number }
+
+export async function getProjectMeta(dir: string): Promise<ProjectMeta> {
+  try { const r = await fetch(`${COMPANION}/project-meta?path=${encodeURIComponent(dir)}`); return await r.json() } catch { return { name: '', description: '', createdAt: null } }
+}
+export const saveProjectMeta = (path: string, meta: { name?: string; description?: string }) =>
+  companionPost<ProjectMeta>('/project-meta', { path, ...meta })
+
+export async function getKnowledge(dir: string): Promise<KnowledgeList> {
+  try { const r = await fetch(`${COMPANION}/project-knowledge?path=${encodeURIComponent(dir)}`); return await r.json() } catch { return { items: [], chars: 0, tokens: 0 } }
+}
+export const addKnowledge = (path: string, body: { name?: string; content?: string; srcPath?: string }) =>
+  companionPost<KnowledgeItem>('/project-knowledge', { path, ...body })
+export const removeKnowledge = (path: string, id: string) =>
+  companionPost<{ ok: boolean }>('/project-knowledge/delete', { path, id })
+
+/** The knowledge to prepend to a prompt in a project: all of it when it fits, else the parts most relevant to `query`
+ *  (local search). Empty on any error, so a knowledge hiccup never blocks sending. */
+export async function getKnowledgeContext(dir: string, query: string, budgetTokens = 16000): Promise<KnowledgeContext> {
+  try { return await companionPost<KnowledgeContext>('/project-knowledge/context', { path: dir, query, budgetTokens }) } catch { return { text: '', mode: 'none', tokens: 0, used: 0 } }
+}

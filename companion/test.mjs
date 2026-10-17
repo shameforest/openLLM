@@ -232,6 +232,11 @@ try {
   ok(Array.isArray(kSearchEmpty.results) && kSearchEmpty.results.length === 0, '/project-knowledge/search on an empty project returns no results (no model needed)')
   const kSearchNoQuery = await post('/project-knowledge/search', { path: proj, query: '   ' })
   ok(kSearchNoQuery.error && /Suchanfrage/.test(kSearchNoQuery.error), '/project-knowledge/search refuses an empty query')
+  // /context (OD-73 stage 3): with little knowledge it loads ALL of it (no model needed) — the send step prepends this.
+  const ctx = await post('/project-knowledge/context', { path: proj, query: 'egal', budgetTokens: 16000 })
+  ok(ctx.mode === 'all' && ctx.text.includes('Inhalt aus einer Datei'), '/project-knowledge/context loads all knowledge when it fits (no model)')
+  const ctxEmpty = await post('/project-knowledge/context', { path: emptyProj, query: 'x' })
+  ok(ctxEmpty.mode === 'none' && ctxEmpty.text === '', '/project-knowledge/context returns nothing for an empty project')
 
   const noKey = await post('/claude', { prompt: 'hallo' })
   ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')

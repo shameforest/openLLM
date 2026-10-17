@@ -4,7 +4,7 @@ import { type FileDiff, type ModelCaps, type OcEvent, type PermissionRequest, ty
 import { LOOP_HINT, autoDecision, fullAutoDecision, matchesAlways, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
-import { companionPost, getProjectNote, saveImageAttachment } from './companion'
+import { companionPost, getKnowledgeContext, getProjectNote, saveImageAttachment } from './companion'
 import { ProjectNote } from './ProjectNote'
 import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
@@ -527,6 +527,9 @@ export default function App() {
         let text = asked
         if (modes.autopilot) text = AUTOPILOT_PREFIX + text
         if (modes.offloadShare > 0) text = OFFLOAD_PREFIX + text // let the local model mark benign subtasks for Claude
+        // OD-73: project knowledge as reference context — all of it when it fits the window, else the parts most relevant
+        // to this prompt (local search). Empty/offline → nothing prepended, so it never blocks sending.
+        if (modes.workdir) { const kc = await getKnowledgeContext(modes.workdir, prompt); if (kc.text.trim()) text = `Projektwissen (Referenz zu diesem Projekt):\n${kc.text.trim()}\n\n${text}` }
         if (projectNote.trim()) text = `Projektnotiz zu diesem Projekt (dauerhafter Kontext):\n${projectNote.trim()}\n\n${text}` // OD-41
         const gi = modes.globalInstructions.trim()
         if (gi) text = `${gi}\n\n${text}` // global instructions apply to every message

@@ -607,6 +607,29 @@ async function searchKnowledge(dir, query, k = 6) {
   return { results: await ragSearch(index, query, k, EMBED_MODEL), model: EMBED_MODEL, chunks: index.chunks.length }
 }
 
+// OD-73 stage 3: the knowledge text to prepend to a prompt in this project — ALL of it when it fits `budgetTokens` of the
+// model's window, otherwise the chunks most relevant to the query (local search). "all" mode needs no embedding model.
+async function knowledgeContext(dir, query, budgetTokens = 16000) {
+  const d = reqDir(dir)
+  const items = await readWissenIndex(d)
+  if (!items.length) return { text: '', mode: 'none', tokens: 0, used: 0 }
+  const budgetChars = Math.max(2000, Math.round(Number(budgetTokens) || 16000) * 4)
+  const totalChars = items.reduce((n, it) => n + (it.chars || 0), 0)
+  if (totalChars <= budgetChars) {
+    let text = ''
+    for (const it of items) { const t = await readKnowledgeText(d, it.id); if (t.trim()) text += `## ${it.name}\n${t.trim()}\n\n` }
+    return { text: text.trim(), mode: 'all', tokens: estTokens(text.length), used: items.length }
+  }
+  const { results } = await searchKnowledge(d, query, 16)
+  let text = '', chars = 0, used = 0
+  for (const r of results) {
+    const block = `## ${r.name}\n${r.text.trim()}\n\n`
+    if (chars + block.length > budgetChars && used > 0) break
+    text += block; chars += block.length; used++
+  }
+  return { text: text.trim(), mode: 'search', tokens: estTokens(text.length), used }
+}
+
 // ---- static web UI ----
 async function serveStatic(url, res) {
   let rel
@@ -679,6 +702,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/project-knowledge') { const b = await readBody(req); return sendJson(res, 200, await addKnowledge(b.path, b)) }
     if (req.method === 'POST' && url.pathname === '/project-knowledge/delete') { const b = await readBody(req); return sendJson(res, 200, await removeKnowledge(b.path, b.id)) }
     if (req.method === 'POST' && url.pathname === '/project-knowledge/search') { const b = await readBody(req); return sendJson(res, 200, await searchKnowledge(b.path, b.query, b.k)) }
+    if (req.method === 'POST' && url.pathname === '/project-knowledge/context') { const b = await readBody(req); return sendJson(res, 200, await knowledgeContext(b.path, b.query, b.budgetTokens)) }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/claude/test') { const b = await readBody(req); return sendJson(res, 200, await testClaude(b.model)) }
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())
