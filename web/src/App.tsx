@@ -4,7 +4,7 @@ import { type FileDiff, type ModelCaps, type OcEvent, type PermissionRequest, ty
 import { LOOP_HINT, autoDecision, fullAutoDecision, matchesAlways, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
-import { companionPost, getKnowledgeContext, getProjectNote, saveImageAttachment } from './companion'
+import { companionPost, getKnowledgeContext, getProjectMeta, getProjectNote, saveImageAttachment, saveProjectMeta } from './companion'
 import { ProjectNote } from './ProjectNote'
 import { cleanPatch } from './diffs'
 import { detectLoop } from './loops'
@@ -80,6 +80,8 @@ export default function App() {
   const [always, setAlways] = useState<Record<string, AlwaysGrant[]>>(() => loadMap<AlwaysGrant>(ALWAYS_KEY)) // OD-63: folder → standing "Immer erlauben" grants
   const [alwaysOpen, setAlwaysOpen] = useState(false)
   const [projectOpen, setProjectOpen] = useState(false) // OD-73: the project view (name, instructions, knowledge, capacity)
+  const [projectNames, setProjectNames] = useState<Record<string, string>>({}) // OD-73: folder → project name, for the Verlauf groups
+  const [pickForProject, setPickForProject] = useState(false) // the folder picker was opened via "+ Neues Projekt"
   const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -684,9 +686,23 @@ export default function App() {
   function addFolders(paths: string[]) {
     if (paths.length) modes.addFolders(paths)
     setPlusOpen(false)
+    if (pickForProject) { setPickForProject(false); if (paths.length) setProjectOpen(true) } // "+ Neues Projekt": name it right away
   }
   // Switch to a saved folder.
   const switchFolder = (path: string) => { modes.set({ workdir: path }); setPlusOpen(false) }
+
+  // OD-73: the project names shown as Verlauf group headers — load them for the saved folders (companion, cached in state).
+  const folderKey = modes.folders.join('|')
+  useEffect(() => {
+    let alive = true
+    if (!modes.folders.length || online !== true) { setProjectNames({}); return }
+    void Promise.all(modes.folders.map((f) => getProjectMeta(f).then((m) => [f, m.name] as const).catch(() => [f, ''] as const)))
+      .then((pairs) => { if (alive) setProjectNames(Object.fromEntries(pairs.filter(([, n]) => n))) })
+    return () => { alive = false }
+  }, [folderKey, online]) // eslint-disable-line react-hooks/exhaustive-deps
+  const newProject = () => { setPickForProject(true); setPickerOpen(true) }
+  const renameProject = (dir: string, name: string) => { setProjectNames((m) => ({ ...m, [dir]: name })); void saveProjectMeta(dir, { name }).catch(() => {}) }
+  const removeProject = (dir: string) => modes.removeFolder(dir) // forgets the project (folder, chats and knowledge stay on disk)
   // Files chosen in the in-app file browser wait as chips above the input until the next message is sent.
   const addAttachments = (files: Attachment[]) => setAttachments((a) => mergeAttachments(a, files))
 
@@ -732,7 +748,8 @@ export default function App() {
     <div className="flex h-full">
       <ChatSidebar running={running} stopRun={stopRun} startNewChat={startNewChat} setModiOpen={setModiOpen} modesActive={modesActive}
         setSettingsOpen={setSettingsOpen} chats={chats} activeChat={activeChat} openChat={openChat} historyMsg={historyMsg}
-        skills={skills} setInput={setInput} inputRef={inputRef} modes={modes} online={online} />
+        skills={skills} setInput={setInput} inputRef={inputRef} modes={modes} online={online}
+        projects={{ names: projectNames, active: modes.workdir, onNew: newProject, onRename: renameProject, onRemove: removeProject }} />
 
       <main className="flex min-w-0 flex-1 flex-col">
         {online === false && (

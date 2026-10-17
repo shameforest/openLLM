@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatTitle, filterChats, newChatId, relDate } from './chats'
+import { type ChatMeta, chatTitle, filterChats, groupChats, newChatId, relDate } from './chats'
 
 describe('chats helpers', () => {
   it('makes ids the companion accepts as file names', () => {
@@ -21,6 +21,14 @@ describe('chats helpers', () => {
     expect(filterChats(list, 'rechner').map((c) => c.title)).toEqual(['Taschenrechner bauen', 'rechner testen'])
     expect(filterChats(list, 'CSV')).toEqual([{ title: 'CSV einlesen' }])
     expect(filterChats(list, 'xyz')).toEqual([])
+  })
+  it('groups chats by project (workdir): active first, others by recency, Ohne Projekt last (OD-73)', () => {
+    const c = (id: string, workdir: string, updatedAt: number): ChatMeta => ({ id, title: id, workdir, updatedAt, createdAt: 0, model: 'm', messages: 1, usage: {} })
+    const list = [c('a', 'C:/p1', 30), c('b', '', 20), c('c', 'C:/p2', 40), c('d', 'C:/p1', 10)]
+    const groups = groupChats(list, { 'C:/p1': 'Projekt Eins' }, 'C:/p2')
+    expect(groups.map((g) => g.dir)).toEqual(['C:/p2', 'C:/p1', '']) // active, then by recency, Ohne Projekt last
+    expect(groups.map((g) => g.name)).toEqual(['p2', 'Projekt Eins', 'Ohne Projekt']) // basename, meta name, fallback
+    expect(groups[1].chats.map((x) => x.id)).toEqual(['a', 'd'])
   })
   it('shows short German relative dates', () => {
     const now = new Date(2026, 9, 15, 12, 0).getTime()

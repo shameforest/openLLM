@@ -43,6 +43,23 @@ export function filterChats<T extends { title: string }>(list: T[], q: string): 
   return list.filter((c) => c.title.toLowerCase().includes(needle))
 }
 
+/** OD-73: one project group in the Verlauf — a working folder, its display name, and its chats. */
+export interface ChatGroup { dir: string; name: string; chats: ChatMeta[] }
+const projBase = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p
+/** Group chats by their project (workdir). Active project first, other projects by most-recent chat, "Ohne Projekt" last. */
+export function groupChats(chats: ChatMeta[], names: Record<string, string>, activeDir: string): ChatGroup[] {
+  const by = new Map<string, ChatMeta[]>()
+  for (const c of chats) { const d = c.workdir || ''; const arr = by.get(d) ?? []; arr.push(c); by.set(d, arr) }
+  const groups: ChatGroup[] = [...by.entries()].map(([dir, cs]) => ({ dir, name: dir ? (names[dir] || projBase(dir)) : 'Ohne Projekt', chats: cs }))
+  return groups.sort((a, b) => {
+    if (a.dir && a.dir === activeDir) return -1
+    if (b.dir && b.dir === activeDir) return 1
+    if (!a.dir) return 1
+    if (!b.dir) return -1
+    return (b.chats[0]?.updatedAt || 0) - (a.chats[0]?.updatedAt || 0)
+  })
+}
+
 /** "vor 5 Min." / "gestern" / "12.10." — short German relative date for the Verlauf list. */
 export function relDate(ts: number, now = Date.now()): string {
   const min = Math.floor((now - ts) / 60000)
