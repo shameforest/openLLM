@@ -209,6 +209,8 @@ function createMock(appOrigin) {
         s.onPermissionReply(reply[1], body)
         return
       }
+      const qReply = p.match(/^\/question\/([^/]+)\/(reply|reject)$/)
+      if (m === 'POST' && qReply) { s.questions = s.questions.filter((x) => x.id !== qReply[1]); return json(route, true) }
       if (m === 'GET' && p === `/session/${SES}/diff`) return json(route, DIFF)
     } else if (svc === 'comp') {
       if (m === 'GET' && p === '/health') return json(route, { ok: true })
@@ -262,6 +264,7 @@ const permAsked = (id, command) => ({
   properties: { id, sessionID: SES, permission: 'bash', patterns: [command], metadata: { command }, always: [command.split(' ')[0] + ' *'], tool: { messageID: 'msg_asst1', callID: `call_${id}` } },
 })
 const permReplied = (id, reply) => ({ type: 'permission.replied', properties: { sessionID: SES, requestID: id, reply } })
+const question = (id) => ({ type: 'question.asked', properties: { id, sessionID: SES, questions: [{ question: 'Welcher Ansatz soll es sein?', header: 'Ansatz', options: [{ label: 'Einfach', description: 'schnell' }, { label: 'Robust', description: 'gründlich' }] }] } })
 const ANSWER_PARTS = ['Ich habe ', 'rechner.py ', 'angelegt:\n\n```python\n', 'def add(a, b):\n    return a + b\n', '```\n\nFertig.']
 const ANSWER = ANSWER_PARTS.join('')
 const answerStart = () => [
@@ -590,6 +593,33 @@ async function main() {
     await waitText('offload-min-value', /40 %/, 'Mindestens 40 %')
     await waitText('offload-share-value', /40 %/, 'Höchstens pushed up to 40 %')
     await shot('claude-help-sliders')
+  })
+
+  // j ---------------------------------------------------------------------------------------------------------------
+  await step('j. Voll-Automatik: a risky command AND a question are auto-answered, banner shows, resets after (OD-71)', async () => {
+    s.onPrompt = () => {
+      s.perms.push(permAsked('per_fa', 'git push origin main').properties)
+      s.questions.push(question('que_fa').properties)
+      mock.queue(permAsked('per_fa', 'git push origin main'), question('que_fa'))
+    }
+    await page.locator('textarea').fill('Baue das Feature fertig und pushe es')
+    await tid('full-auto').click()
+    await visible('full-auto-confirm', 'the one-time Voll-Automatik risk dialog (first use)')
+    await tid('full-auto-go').click()
+    await visible('full-auto-banner', 'Voll-Automatik banner while running')
+
+    // the risky "git push" is auto-granted with "once" — without Voll-Automatik it would wait for a click
+    const r = await waitFor(() => mock.calls('oc', 'POST', /^\/permission\/per_fa\/reply$/)[0], 'automatic reply for the risky command')
+    check(same(r.body, { reply: 'once' }), `expected an automatic {"reply":"once"}, got ${JSON.stringify(r.body)}`)
+    // the question is auto-skipped, so the agent decides itself
+    await waitFor(() => mock.calls('oc', 'POST', /^\/question\/que_fa\/reject$/).length, 'automatic question reject')
+    check((await tid('perm-card').count()) === 0 && (await tid('question-card').count()) === 0, 'expected no card to wait in Voll-Automatik')
+    await shot('full-auto')
+
+    // finishing the run disarms it: banner gone, the Voll-Automatik button is back
+    mock.queue({ type: 'session.status', properties: { sessionID: SES, status: { type: 'idle' } } })
+    await hidden('full-auto-banner', 'Voll-Automatik banner after the run')
+    await visible('full-auto', 'Voll-Automatik button back (disarmed)')
   })
 
   // safety nets -----------------------------------------------------------------------------------------------------

@@ -128,6 +128,7 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `requests.ts` | German permission texts, **`autoDecision`** (auto-allow policy), path checks, one-liner check; also used by the Testlauf |
 | `RequestCard.tsx` | Permission card (Einmal / Immer / Ablehnen, loop: "Anders weitermachen") and question card |
 | `AlwaysAllowed.tsx` | OD-63 "Dauer-Freigaben" dialog: list + revoke the "Immer erlauben" grants OpenDante stores per folder |
+| `FullAutoConfirm.tsx` | OD-71 one-time risk dialog before the first "Voll-Automatik" run (auto-answers every permission/question) |
 | `messages.ts` | `Msg` type, `CONTEXT_LIMIT` (from opencode.json), `wroteFiles`, `toThought` |
 | `Bubble.tsx`, `ThinkingSidebar.tsx`, `TodoCard.tsx`, `ActivityCard.tsx`, `TurnActions.tsx`, `diffs.ts` | Answer bubble, thinking sidebar, task list, live activity card (OD-55: current action + files, from `run.turn.tools`), undo/diff/plan buttons, diff cleanup |
 | `loops.ts` | Loop detector (3 same errors / A-B oscillation / 4× same call) → "Anders weitermachen" |
@@ -200,6 +201,14 @@ stored grant (`matchesAlways()` in requests.ts) is auto-answered **once**, **eve
 rule outranks the general switch). The "🔓 Dauer-Freigaben" dialog (`AlwaysAllowed.tsx`, in the "+" menu) lists a folder's
 grants with kind + date and revokes one or all. This closes the earlier gap that "Immer erlauben" was invisible and
 irrevocable. Tested: `matchesAlways`/`kindLabel` in `requests.test.ts`, `AlwaysAllowed.test.tsx`, and e2e steps d/g.
+
+**Full Auto override (OD-71):** the "⚡ Voll-Automatik" button arms a per-run mode (`fullAuto` state, not persisted) that
+sits ABOVE layers 0–2: while on, `fullAutoDecision()` grants every permission with `once` and a separate effect
+auto-rejects every question (so the agent decides itself) — the run reaches its end with zero prompts. The only thing not
+granted blindly is a doom-loop (still redirected, else it never ends). A one-time risk dialog (`FullAutoConfirm.tsx`,
+remembered in `fullAutoAck`) gates the first use; a loud banner + Stop shows while it runs; it auto-disarms on turn-end,
+Stop and new-chat. It CANNOT override opencode.json `deny` (shutdown/format/delete), which stays a hard floor even here.
+Tested: `fullAutoDecision` in `requests.test.ts`, e2e step j (risky `git push` auto-granted + question auto-rejected).
 
 ---------------------------------------------------------------------------------------------------------------------
 

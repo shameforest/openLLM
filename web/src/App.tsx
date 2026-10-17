@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { type Progress, type StepSample, type TaskSample, finishStep, reduceProgress, startProgress } from './progress'
 import { type FileDiff, type OcEvent, type PermissionRequest, type QuestionRequest, type Todo, abort, connectEvents, createSession, health, listPermissions, listQuestions, rejectQuestion, replyPermission, replyQuestion, revertTo, sendPrompt, serverPaths, sessionDiff, sessionMessages, sessionStatus, sessionTodos, summarize, unrevert, projectInfo, gitInit } from './api'
-import { LOOP_HINT, autoDecision, matchesAlways, openCodeSafeDirs } from './requests'
+import { LOOP_HINT, autoDecision, fullAutoDecision, matchesAlways, openCodeSafeDirs } from './requests'
 import { RequestCard } from './RequestCard'
 import { estLoadMs, isLoaded, keepWarm, loadPct, preload, recordLoadMs } from './ollama'
 import { companionPost, getProjectNote, saveImageAttachment } from './companion'
@@ -26,6 +26,7 @@ import { Settings } from './SettingsPanel'
 import { type Msg, CONTEXT_LIMIT, toThought, wroteFiles } from './messages'
 import { ALWAYS_KEY, GIT_SKIP_KEY, STEPS_KEY, TASKS_KEY, type AlwaysGrant, loadList, loadMap, saveList, saveMap } from './storage'
 import { AlwaysAllowed } from './AlwaysAllowed'
+import { FullAutoConfirm } from './FullAutoConfirm'
 import { DEMO, SIM_WPS } from './demo'
 import { ChatSidebar } from './ChatSidebar'
 import { Bubble } from './Bubble'
@@ -110,6 +111,7 @@ export default function App() {
     setActiveChat(null)
     setMessages([]); setRun(null); setUsage(emptyUsage())
     setPerms([]); setQuestions([]); autoReplied.current.clear()
+    setFullAuto(false); autoRejectedQ.current.clear() // OD-71: a fresh chat is never silently in Voll-Automatik
     setTodos([]); setTodosAt(0); setCtxUsed(0); setCtxNote('')
   }
 
@@ -239,6 +241,9 @@ export default function App() {
   const [perms, setPerms] = useState<PermissionRequest[]>([])
   const [questions, setQuestions] = useState<QuestionRequest[]>([])
   const autoReplied = useRef<Set<string>>(new Set()) // permission ids auto-answered, so we never answer twice
+  const [fullAuto, setFullAuto] = useState(false) // OD-71: run the current turn to the end, auto-answering EVERY prompt (per run, resets when done)
+  const [fullAutoConfirm, setFullAutoConfirm] = useState(false) // the one-time risk dialog is open
+  const autoRejectedQ = useRef<Set<string>>(new Set()) // question ids auto-skipped in Full Auto, so we never answer twice
   const [serverDir, setServerDir] = useState('') // the server's own folder, used when no working folder is chosen
   const [safeDirs, setSafeDirs] = useState<string[]>([]) // OpenCode's own data/state folders (plan mode writes plans there)
   const effectiveDir = modes.workdir || serverDir
@@ -372,6 +377,8 @@ export default function App() {
   useEffect(() => {
     for (const p of perms) {
       if (autoReplied.current.has(p.id)) continue
+      // OD-71: Voll-Automatik grants everything (only loops get turned around), so the run never stops for a prompt.
+      if (fullAuto) { autoReplied.current.add(p.id); const d = fullAutoDecision(p); void answerPerm(p.id, d.reply, 'message' in d ? d.message : undefined); continue }
       if (matchesAlways(p, always[effectiveDir] ?? [])) { autoReplied.current.add(p.id); void answerPerm(p.id, 'once'); continue }
       if (!modes.autoAllow) continue
       const d = autoDecision(p, effectiveDir, safeDirs)
@@ -379,7 +386,18 @@ export default function App() {
       autoReplied.current.add(p.id)
       void answerPerm(p.id, d.reply, 'message' in d ? d.message : undefined)
     }
-  }, [perms, modes.autoAllow, answerPerm, effectiveDir, safeDirs, always])
+  }, [perms, fullAuto, modes.autoAllow, answerPerm, effectiveDir, safeDirs, always])
+
+  // OD-71: in Voll-Automatik skip every question too, so the agent decides itself ("die K.I. wählt den Weg selbst").
+  useEffect(() => {
+    if (!fullAuto) return
+    for (const q of questions) {
+      if (autoRejectedQ.current.has(q.id)) continue
+      autoRejectedQ.current.add(q.id)
+      setQuestions((xs) => xs.filter((x) => x.id !== q.id))
+      void rejectQuestion(q.id, modes.workdir).catch(() => {})
+    }
+  }, [questions, fullAuto, modes.workdir])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, run])
 
@@ -393,6 +411,8 @@ export default function App() {
   // When a turn ends, commit it to the transcript and remember how long / how much it was (for the estimate).
   useEffect(() => {
     if (!run || !run.turn.done) return
+    setFullAuto(false) // OD-71: the run is over → disarm Voll-Automatik; the next prompt needs a fresh click
+    autoRejectedQ.current.clear()
     const t = run.turn
     // The agent of the last answer counts: a plan that was switched to "build" and carried out in the same turn is no
     // longer a plan waiting for "Plan umsetzen".
@@ -585,9 +605,24 @@ export default function App() {
   }
 
   async function stopRun() {
+    setFullAuto(false) // stopping disarms Voll-Automatik
     simRef.current() // stop the offline preview if it is the one running
     if (sessionRef.current) await abort(sessionRef.current, modes.workdir)
     setRun((prev) => (prev && !prev.turn.done ? { ...prev, stopped: true, turn: { ...prev.turn, done: true } } : prev))
+  }
+
+  // OD-71: arm Voll-Automatik for THIS prompt and send it. The very first time, show the one-time risk notice instead.
+  function runFullAuto() {
+    if (!input.trim() || running) return
+    if (!modes.fullAutoAck) { setFullAutoConfirm(true); return }
+    setFullAuto(true)
+    void send()
+  }
+  function confirmFullAuto() {
+    modes.set({ fullAutoAck: true })
+    setFullAutoConfirm(false)
+    setFullAuto(true)
+    void send()
   }
 
   // Undo a turn and everything after it (OD-09): OpenCode puts the files back to their state before that turn's user
@@ -786,6 +821,16 @@ export default function App() {
             )}
             {/* OD-55: what the agent is really doing now — independent of whether it maintains its task list. */}
             {run && !run.turn.done && run.turn.tools.length > 0 && <ActivityCard tools={run.turn.tools} />}
+            {/* OD-71: a loud, always-visible reminder while Voll-Automatik runs, with a Stop. */}
+            {running && fullAuto && (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-accent bg-accent/10 px-4 py-2.5 text-[13px]" data-testid="full-auto-banner">
+                <span className="flex items-center gap-2 text-accent">
+                  <span className="size-2 shrink-0 animate-pulse rounded-full bg-accent motion-reduce:animate-none" aria-hidden />
+                  ⚡ Voll-Automatik läuft — alle Freigaben und Rückfragen werden automatisch beantwortet, bis der Auftrag fertig ist.
+                </span>
+                <button className="btn-accent shrink-0 !py-1 !text-[13px]" onClick={() => void stopRun()} data-testid="full-auto-stop">Stoppen</button>
+              </div>
+            )}
             {!running && online && hasGit === false && !gitSkip.includes(effectiveDir) && (
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-panel px-4 py-2.5 text-[13px]" data-testid="git-hint">
                 <span className="min-w-0 flex-1 text-ink2">
@@ -875,8 +920,13 @@ export default function App() {
                   <span className="size-3 rounded-[2px] bg-[#1a1410]" />
                 </button>
               ) : (
-                <button className="mb-1 rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410] disabled:opacity-40"
-                  onClick={() => void send()} disabled={!input.trim()} data-testid="send">Senden</button>
+                <div className="mb-1 flex items-center gap-2">
+                  <button className="rounded-lg border border-accent/40 px-2.5 py-1.5 text-[13px] text-ink2 hover:bg-accent/10 hover:text-ink disabled:opacity-40"
+                    onClick={runFullAuto} disabled={!input.trim()} data-testid="full-auto"
+                    title="Führt diesen Auftrag bis zum Ende aus und beantwortet ALLE Freigaben und Rückfragen automatisch (die K.I. wählt selbst).">⚡ Voll-Automatik</button>
+                  <button className="rounded-lg bg-accent px-3 py-1.5 text-[14px] font-medium text-[#1a1410] disabled:opacity-40"
+                    onClick={() => void send()} disabled={!input.trim()} data-testid="send">Senden</button>
+                </div>
               )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-ink3">
@@ -903,6 +953,7 @@ export default function App() {
       <ProjectNote open={noteOpen} workdir={modes.workdir} onClose={() => setNoteOpen(false)} onSaved={(n) => setProjectNote(n)}
         onLearn={() => { setNoteOpen(false); void send({ text: 'Lerne dieses Projekt kennen: Sieh dir die wichtigsten Dateien an (README, package.json o. Ä., Einstiegspunkte, Ordnerstruktur) und schreibe eine KURZE Projektnotiz (Markdown, höchstens ~25 Zeilen) mit Zweck, Aufbau, wichtigen Befehlen (Start/Test/Build) und Konventionen. Lege den Ordner .opendante an, falls nötig, und speichere die Notiz in .opendante/projektnotiz.md. Gib am Ende nur einen kurzen Satz aus, dass die Notiz geschrieben wurde.', agent: 'build' }) }} />
       <AlwaysAllowed open={alwaysOpen} dir={effectiveDir} grants={always[effectiveDir] ?? []} onClose={() => setAlwaysOpen(false)} onRevoke={revokeAlways} onClearAll={clearAlways} />
+      <FullAutoConfirm open={fullAutoConfirm} onCancel={() => setFullAutoConfirm(false)} onConfirm={confirmFullAuto} />
       <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFolders} />
       <FilePicker open={filePickerOpen} onClose={() => setFilePickerOpen(false)} onPick={addAttachments} />
       <ThinkingSidebar open={modes.thinkingOpen} onToggle={() => modes.set({ thinkingOpen: !modes.thinkingOpen })} items={thoughts} />

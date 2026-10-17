@@ -34,6 +34,7 @@ interface State extends Modes {
   thinkingOpen: boolean // right-hand "Gedankengang" sidebar shown (true) or folded away (false)
   keepWarmMin: number // keep the local model loaded this many minutes after an answer (0 = Ollama's 5-minute default)
   planFirst: boolean // send the next request to the read-only "plan" agent first; "Plan umsetzen" then runs it
+  fullAutoAck: boolean // OD-71: the user saw the one-time "Voll-Automatik" risk notice (shown only until acknowledged)
   claudeDailyUsd: number // daily spending cap for the paid Claude modes (0 = no cap)
   // OD-16/OD-29: "schnell" = carry out without thinking (model variant "ohne-denken", reasoning_effort none), plan mode
   // still thinks; "gruendlich" = always think. Measured 2026-10-15, 6 hard Testlauf tasks × 2: without thinking 12/12
@@ -48,7 +49,7 @@ interface State extends Modes {
   offloadShare: number
   offloadMin: number
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode' | 'offloadShare' | 'offloadMin'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode' | 'offloadShare' | 'offloadMin' | 'fullAutoAck'>>) => void
   addFolders: (paths: string[]) => void // remember folders and make the first one active
   removeFolder: (path: string) => void
 }
@@ -69,6 +70,7 @@ export const useSettings = create<State>()(
       thinkingOpen: false,
       keepWarmMin: 60,
       planFirst: false,
+      fullAutoAck: false,
       claudeDailyUsd: 2,
       thinkMode: 'schnell',
       offloadShare: 0, // MAX: off until the user moves the slider above the prompt box

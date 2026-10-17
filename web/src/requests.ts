@@ -41,6 +41,15 @@ export function matchesAlways(p: PermissionRequest, grants: { pat: string }[]): 
   return p.always.some((pat) => set.has(pat))
 }
 
+// OD-71 "Voll-Automatik": the user chose to run a prompt to the very end with ZERO prompts, so GRANT every request. The
+// one thing not granted blindly is a doom-loop — the agent is turned around with a hint instead of repeating forever, so
+// the run can actually reach its end. (OpenCode's own `deny` rules — shutdown, format, mass-delete — still apply below us,
+// so even full auto cannot run those.)
+export function fullAutoDecision(p: PermissionRequest): { reply: 'once' } | { reply: 'reject'; message: string } {
+  if (p.permission === 'doom_loop') return { reply: 'reject', message: LOOP_HINT }
+  return { reply: 'once' }
+}
+
 // Never answered automatically — the user decides:
 // - uploading or throwing work away (git push / reset --hard / clean / checkout -- / restore / branch -D / stash drop),
 // - deleting, also through aliases (ri, erase, rd …) and system-changing tools; most are also denied in opencode.json,

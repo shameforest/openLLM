@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PermissionRequest } from './api'
-import { LOOP_HINT, autoDecision, describePermission, harmlessOneLiner, kindLabel, matchesAlways, openCodeSafeDirs, pathsOutside, whyAsked } from './requests'
+import { LOOP_HINT, autoDecision, describePermission, fullAutoDecision, harmlessOneLiner, kindLabel, matchesAlways, openCodeSafeDirs, pathsOutside, whyAsked } from './requests'
 
 const req = (permission: string, metadata: Record<string, unknown> = {}, patterns: string[] = []): PermissionRequest =>
   ({ id: 'per_1', sessionID: 'ses_1', permission, metadata, patterns, always: [] })
@@ -31,6 +31,20 @@ describe('matchesAlways (OD-63 standing grants)', () => {
     expect(kindLabel('edit')).toMatch(/Datei/)
     expect(kindLabel('external_directory')).toMatch(/außerhalb/)
     expect(kindLabel('lsp')).toBe('lsp')
+  })
+})
+
+describe('fullAutoDecision (OD-71 Voll-Automatik)', () => {
+  it('grants EVERY request that would normally ask — even the risky ones', () => {
+    expect(fullAutoDecision(req('bash', { command: 'git push origin main' }))).toEqual({ reply: 'once' })
+    expect(fullAutoDecision(req('bash', { command: 'Remove-Item -Recurse build' }))).toEqual({ reply: 'once' })
+    expect(fullAutoDecision(req('external_directory', {}, ['C:/Users/x/*']))).toEqual({ reply: 'once' })
+    expect(fullAutoDecision(req('webfetch', { url: 'https://example.com' }))).toEqual({ reply: 'once' })
+    expect(fullAutoDecision(req('task'))).toEqual({ reply: 'once' })
+    expect(fullAutoDecision(req('some_unknown_kind'))).toEqual({ reply: 'once' })
+  })
+  it('still turns a doom-loop around instead of repeating forever (so the run can reach its end)', () => {
+    expect(fullAutoDecision(req('doom_loop'))).toEqual({ reply: 'reject', message: LOOP_HINT })
   })
 })
 
