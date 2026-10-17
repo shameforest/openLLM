@@ -97,8 +97,8 @@ localStorage `openllm.base` (OpenCode URL), `openllm.companion` (companion URL).
 2. **send()** — prompt text is built as: `globalInstructions` + `OFFLOAD_PREFIX`? + `AUTOPILOT_PREFIX`? + the prompt
    (a leading `/skillname` becomes "Verwende den Skill …"). Attachments become OpenCode `file` parts (`file:///…`).
    First message of a chat → `POST /session {title}`. Then `POST /session/{id}/prompt_async` with
-   `{agent: build|plan, model:{providerID:'ollama', modelID}, parts, variant}`; `variant = 'ohne-denken'` unless plan
-   mode or thinkMode "gruendlich". **While `online` is not yet `true` the message runs the canned offline demo instead
+   `{agent: build|plan, model:{providerID:'ollama', modelID}, parts, variant}`; OD-74: `variant = variantForEffort(model,
+   effort)` (`'' → undefined`) for build, `undefined` for plan (plan always thinks). **While `online` is not yet `true` the message runs the canned offline demo instead
    (AN-08).**
 3. **Streaming** — every SSE event goes through two pure reducers: `stream.ts reduceEvent` (answer/thinking text, tool
    calls, tokens, errors, retry, done) and `progress.ts reduceProgress` (steps for the clock). Thinking is routed by
@@ -147,7 +147,7 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `FolderPicker.tsx`, `FilePicker.tsx`, `fs.ts`, `attachments.ts` | In-app folder/file browser (companion `/fs`), attachments as file parts; **images** can be pasted (Ctrl+V) or dropped into the prompt box (companion `POST /attach` saves them) and the vision model reads them (OD-37: `attachment:true`+`modalities` per model in opencode.json). OD-72: needs the INSTALLED config in sync (sync-config.ps1); if the running model still reports no image support (`listModelCaps`/`activeModelTakesImages` in api.ts, from `GET /config/providers`) the UI warns at attach time instead of failing silently |
 | `skills.ts`, `projects.ts`, `companion.ts`, `storage.ts`, `demo.ts`, `useEscape.ts` | Skills list + `/slug` expansion, GitHub projects/git, companion helper, localStorage helpers, offline demo text, Escape hook |
 
-Settings (`openllm.modes`): `autoAllow` **true**, `autopilot`/`offload`/`audit` false, `thinkMode` `schnell`,
+Settings (`openllm.modes`, persist version 1): `autoAllow` **true**, `autopilot`/`offload`/`audit` false, `effort` `schnell` (OD-74, model-aware; migrated from `thinkMode`),
 `planFirst` false, `keepWarmMin` 60, `localModel` = models.json default, `workdir` '' (= server folder), `folders`,
 `thinkingOpen`, `globalInstructions`, `apiKey`, `claudeModel` `claude-sonnet-5-5`, `claudeDailyUsd` 2.
 Other localStorage: `openllm.steps` (60 step samples), `openllm.tasks` (30), `openllm.loadms` (10),
@@ -174,7 +174,8 @@ anywhere (argv arrays); no path traversal found.
 ### config/ (installed to ~/.config/opencode)
 - `opencode.json`: model default, `autoupdate:false`, `share:"disabled"`, provider `ollama` (`@ai-sdk/openai-compatible`,
   `http://localhost:11434/v1`), 3 models each `limit {context 65536, output 16384}`, `temperature:true`, variant
-  `ohne-denken` (`reasoningEffort: none`); `mcp.playwright` prepared but `enabled:false`; `permission` (section 5);
+  `ohne-denken` (`reasoningEffort: none`) on all; OD-74 adds `denken-niedrig/mittel/hoch` (low/medium/xhigh) on the
+  original `qwen3.8:27b` (its graded effort levels, from models.json `effort[]`); `mcp.playwright` prepared but `enabled:false`; `permission` (section 5);
   `agent.plan.permission` (edit only `*opencode/plans/*.md`, own bash list). Traps are documented in its `_note`.
 - `models.json`: the single model list (UI, companion, installer, Testlauf read it); `models.test.ts` checks that
   opencode.json has the same ids and default (ids only, not limits).

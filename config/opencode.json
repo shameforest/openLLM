@@ -45,6 +45,15 @@
           "variants": {
             "ohne-denken": {
               "reasoningEffort": "none"
+            },
+            "denken-niedrig": {
+              "reasoningEffort": "low"
+            },
+            "denken-mittel": {
+              "reasoningEffort": "medium"
+            },
+            "denken-hoch": {
+              "reasoningEffort": "xhigh"
             }
           },
           "attachment": true,

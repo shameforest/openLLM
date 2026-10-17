@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CLAUDE_MODELS, LOCAL_MODELS, useSettings } from './settings'
+import { CLAUDE_MODELS, LOCAL_MODELS, effortLevels, useSettings } from './settings'
 import { COMPANION, OFFLINE_HINT, companionPost } from './companion'
 import { useSkills } from './skills'
 import { cloneRepo, gitAction, useProjects } from './projects'
@@ -128,15 +128,15 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
             Spart nach einer Pause ~45 s Ladezeit vor der ersten Antwort. Das Modell belegt solange ~18 GB Grafikspeicher; OpenDali entlädt es beim Start automatisch.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
-            <span className="text-ink3">Nachdenken vor jedem Schritt:</span>
-            <select className="rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none" value={s.thinkMode}
-              onChange={(e) => s.set({ thinkMode: e.target.value === 'gruendlich' ? 'gruendlich' : 'schnell' })} data-testid="think-off">
-              <option value="schnell">Schnell — umsetzen ohne, planen mit Nachdenken (Standard)</option>
-              <option value="gruendlich">Gründlich — immer nachdenken</option>
+            <span className="text-ink3">Aufwand (Nachdenken) beim Umsetzen:</span>
+            <select className="rounded-lg border border-line bg-bg p-1.5 text-[13px] outline-none" data-testid="settings-effort"
+              value={effortLevels(s.localModel).some((l) => l.key === s.effort) ? s.effort : effortLevels(s.localModel)[0].key}
+              onChange={(e) => s.set({ effort: e.target.value })}>
+              {effortLevels(s.localModel).map((l) => <option key={l.key} value={l.key}>{l.label}{l.hint ? ` — ${l.hint}` : ''}</option>)}
             </select>
           </div>
           <p className="mt-1 text-[12px] text-ink3">
-            Gemessen an 6 schweren Aufgaben, je zweimal: ohne Nachdenken 12 von 12 gelöst in 74 min, mit Nachdenken 11 von 12 in 167 min. Der Agent prüft sich beim Umsetzen über Tests statt im Kopf. Ein Plan („Erst planen“) wird immer gründlich durchdacht.
+            Auch direkt unter der Eingabe wählbar. Die Stufen hängen vom Modell ab: das Standardmodell (zensurfrei) kann nur „Schnell“ (ohne Nachdenken) und „Gründlich“ (mit) — gemessen an 6 schweren Aufgaben je zweimal: ohne 12/12 in 74 min, mit 11/12 in 167 min. Das Original-Qwen hat zusätzlich Niedrig/Mittel/Hoch. Ein Plan („Erst planen“) wird immer gründlich durchdacht.
           </p>
         </Section>
 

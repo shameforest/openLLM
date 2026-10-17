@@ -561,14 +561,19 @@ async function main() {
   })
 
   // h ---------------------------------------------------------------------------------------------------------------
-  await step('h. Einstellungen opens with the think-off select; Esc closes it', async () => {
+  await step('h. model + effort selectors under the prompt box (OD-74); Einstellungen opens/closes', async () => {
+    // under the prompt box: a model select and an effort select, always visible
+    check((await tid('model-select').count()) === 1, 'expected a model select under the prompt box')
+    const models = await tid('model-select').locator('option').evaluateAll((os) => os.map((o) => o.value))
+    check(models.length === 3 && models[0].includes('Uncensored'), `expected the 3 local models, got ${JSON.stringify(models)}`)
+    const effVals = await tid('effort-select').locator('option').evaluateAll((os) => os.map((o) => o.value))
+    check(same(effVals, ['schnell', 'gruendlich']), `expected the default model's effort options schnell/gruendlich, got ${JSON.stringify(effVals)}`)
+    check((await tid('effort-select').inputValue()) === 'schnell', 'expected "schnell" as the default effort')
+    await shot('model-effort-selectors')
+    // Einstellungen still opens with the model select and closes on Esc
     await tid('open-settings').click()
     await visible('settings')
-    check((await tid('think-off').count()) === 1, 'expected exactly one think-off select')
-    check(await tid('think-off').evaluate((el) => el.tagName === 'SELECT'), 'expected think-off to be a <select>')
-    const values = await tid('think-off').locator('option').evaluateAll((os) => os.map((o) => o.value))
-    check(same(values, ['schnell', 'gruendlich']), `expected think-off options schnell/gruendlich, got ${JSON.stringify(values)}`)
-    check((await tid('think-off').inputValue()) === 'schnell', 'expected "schnell" (carry out without thinking) as the default')
+    check((await tid('local-model').count()) === 1, 'expected the model select inside Einstellungen')
     await waitText('claude-spent', /0\.00 \$/, 'today\'s Claude usage from the companion')
     await shot('settings')
     await page.keyboard.press('Escape')

@@ -20,9 +20,21 @@ export const CLAUDE_MODELS = [
 /** Local models served by Ollama — from config/models.json, the single list shared with the companion, install.ps1
  *  and (checked by models.test.ts) config/opencode.json. Uncensored = "abliterated": the refusal direction removed from
  *  the weights, otherwise the same Qwen3.8 27B (Apache-2.0). */
-export const LOCAL_MODELS: { id: string; name: string; note: string }[] = modelList.models
+export interface EffortLevel { key: string; label: string; variant: string; hint?: string }
+export interface LocalModel { id: string; name: string; note: string; effort?: EffortLevel[] }
+export const LOCAL_MODELS: LocalModel[] = modelList.models
 export const DEFAULT_LOCAL_MODEL: string = modelList.default
 export const localModelName = (id: string): string => LOCAL_MODELS.find((m) => m.id === id)?.name ?? id
+
+// OD-74: the reasoning-effort levels a model REALLY honours (from config/models.json), each mapped to an opencode.json
+// variant ('' = the model default = thinking on). A fallback keeps two levels if a model has none declared.
+const DEFAULT_EFFORT: EffortLevel[] = [
+  { key: 'schnell', label: 'Schnell', variant: 'ohne-denken', hint: 'ohne Nachdenken, am schnellsten' },
+  { key: 'gruendlich', label: 'Gründlich', variant: '', hint: 'denkt vor dem Antworten' },
+]
+export const effortLevels = (modelId: string): EffortLevel[] => { const e = LOCAL_MODELS.find((m) => m.id === modelId)?.effort; return e && e.length ? e : DEFAULT_EFFORT }
+/** The opencode.json variant for a chosen effort key ('' = model default). Unknown key → the model's first (default) level. */
+export const variantForEffort = (modelId: string, key: string): string => { const ls = effortLevels(modelId); return (ls.find((l) => l.key === key) ?? ls[0]).variant }
 
 interface State extends Modes {
   globalInstructions: string
@@ -36,10 +48,11 @@ interface State extends Modes {
   planFirst: boolean // send the next request to the read-only "plan" agent first; "Plan umsetzen" then runs it
   fullAutoAck: boolean // OD-71: the user saw the one-time "Voll-Automatik" risk notice (shown only until acknowledged)
   claudeDailyUsd: number // daily spending cap for the paid Claude modes (0 = no cap)
-  // OD-16/OD-29: "schnell" = carry out without thinking (model variant "ohne-denken", reasoning_effort none), plan mode
-  // still thinks; "gruendlich" = always think. Measured 2026-10-15, 6 hard Testlauf tasks × 2: without thinking 12/12
-  // in 74 min, with thinking 11/12 in 167 min. A new key, so existing setups get the measured default too.
-  thinkMode: 'schnell' | 'gruendlich'
+  // OD-16/OD-29/OD-74: the reasoning effort for CARRYING OUT (plan mode always thinks). A level KEY from the model's
+  // effort list in config/models.json → an opencode.json variant. Default "schnell" = no thinking (measured 2026-10-15:
+  // without thinking 12/12 in 74 min vs with thinking 11/12 in 167 min). The available levels depend on the model: the
+  // uncensored/abliterated weights honour only none/on, the original Qwen none/low/medium/xhigh (set under the prompt box).
+  effort: string
   // "Claude-Hilfe" range (slider above the prompt box), both as a share of the combined work measured in tokens.
   // offloadShare = MAXIMUM: how much Claude may take over opportunistically (self-contained benign subtasks the local
   // model marks); 0 = no offloading. The safety gate still decides WHAT may leave the PC; this only caps HOW MUCH.
@@ -49,7 +62,7 @@ interface State extends Modes {
   offloadShare: number
   offloadMin: number
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'thinkMode' | 'offloadShare' | 'offloadMin' | 'fullAutoAck'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'effort' | 'offloadShare' | 'offloadMin' | 'fullAutoAck'>>) => void
   addFolders: (paths: string[]) => void // remember folders and make the first one active
   removeFolder: (path: string) => void
 }
@@ -72,7 +85,7 @@ export const useSettings = create<State>()(
       planFirst: false,
       fullAutoAck: false,
       claudeDailyUsd: 2,
-      thinkMode: 'schnell',
+      effort: 'schnell',
       offloadShare: 0, // MAX: off until the user moves the slider above the prompt box
       offloadMin: 0, // MIN floor: off until set; then Claude improves the result when the local model offloaded too little
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
@@ -89,7 +102,13 @@ export const useSettings = create<State>()(
         workdir: s.workdir === path ? '' : s.workdir, // removing the active folder falls back to the default
       })),
     }),
-    { name: 'openllm.modes' },
+    {
+      name: 'openllm.modes',
+      version: 1,
+      // OD-74: an older build stored thinkMode (schnell/gruendlich); carry it over to the new `effort` key so a chosen
+      // "gruendlich" is not lost (the keys match for the default model).
+      migrate: (s, version) => { const st = (s || {}) as Partial<State> & { thinkMode?: string }; if (version < 1 && st.thinkMode && !st.effort) st.effort = st.thinkMode; return st as State },
+    },
   ),
 )
 

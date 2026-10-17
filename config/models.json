@@ -1,9 +1,29 @@
 {
-  "_note": "The ONE list of local models (Ollama tags). Read by the web app (Einstellungen), the companion (model updates) and install.ps1 (which model to pull). config/opencode.json must list the same ids under provider.ollama.models; web/src/models.test.ts fails if they drift apart. Licenses: all Apache-2.0 (Qwen3.8 27B and its abliterated variants), checked on ollama.com 2026-10-15.",
+  "_note": "The ONE list of local models (Ollama tags). Read by the web app (Einstellungen + the model/effort selectors under the prompt box), the companion (model updates) and install.ps1 (which model to pull). config/opencode.json must list the same ids under provider.ollama.models AND define every effort `variant` below as a model variant; web/src/models.test.ts fails if they drift apart. Licenses: all Apache-2.0 (Qwen3.8 27B and its abliterated variants), checked on ollama.com 2026-10-15. `effort` = the reasoning levels THIS model really honours (OD-74), each mapped to an opencode.json variant ('' = the model default = thinking on). The uncensored/abliterated weights expose only none/on (ollama show: levels false/true), so they get 2 real levels; the original Qwen exposes none/low/medium/xhigh, so it gets 4.",
   "default": "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M",
   "models": [
-    { "id": "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M", "name": "Qwen3.8 27B Uncensored", "note": "zensurfrei (abliteriert) · Standard · 18 GB" },
-    { "id": "qwen3.8:27b", "name": "Qwen3.8 27B", "note": "Originalfassung von Alibaba · 17 GB" },
-    { "id": "huihui_ai/Qwen3.8-abliterated:27b-q4_K_M", "name": "Qwen3.8 27B Abliterated (huihui)", "note": "zensurfreie Alternative · 18 GB" }
+    {
+      "id": "orcarouter/Qwen3.8-27B-Uncensored:q4_K_M", "name": "Qwen3.8 27B Uncensored", "note": "zensurfrei (abliteriert) · Standard · 18 GB",
+      "effort": [
+        { "key": "schnell", "label": "Schnell", "variant": "ohne-denken", "hint": "ohne Nachdenken, am schnellsten" },
+        { "key": "gruendlich", "label": "Gründlich", "variant": "", "hint": "denkt vor dem Antworten, langsamer, gründlicher" }
+      ]
+    },
+    {
+      "id": "qwen3.8:27b", "name": "Qwen3.8 27B", "note": "Originalfassung von Alibaba · 17 GB",
+      "effort": [
+        { "key": "schnell", "label": "Schnell", "variant": "ohne-denken", "hint": "ohne Nachdenken, am schnellsten" },
+        { "key": "niedrig", "label": "Niedrig", "variant": "denken-niedrig", "hint": "wenig Nachdenken" },
+        { "key": "mittel", "label": "Mittel", "variant": "denken-mittel", "hint": "mittleres Nachdenken" },
+        { "key": "hoch", "label": "Hoch", "variant": "denken-hoch", "hint": "viel Nachdenken, am gründlichsten" }
+      ]
+    },
+    {
+      "id": "huihui_ai/Qwen3.8-abliterated:27b-q4_K_M", "name": "Qwen3.8 27B Abliterated (huihui)", "note": "zensurfreie Alternative · 18 GB",
+      "effort": [
+        { "key": "schnell", "label": "Schnell", "variant": "ohne-denken", "hint": "ohne Nachdenken, am schnellsten" },
+        { "key": "gruendlich", "label": "Gründlich", "variant": "", "hint": "denkt vor dem Antworten, langsamer, gründlicher" }
+      ]
+    }
   ]
 }

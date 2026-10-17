@@ -12,7 +12,7 @@ import { TurnActions } from './TurnActions'
 import { TodoCard } from './TodoCard'
 import { ActivityCard } from './ActivityCard'
 import { type StoredMessage, type Turn, emptyTurn, eventSession, lastTurn, produced, reduceEvent, splitThinking, turnFromMessages } from './stream'
-import { AUTOPILOT_PREFIX, OFFLOAD_SHARE_MAX, localModelName, useSettings } from './settings'
+import { AUTOPILOT_PREFIX, LOCAL_MODELS, OFFLOAD_SHARE_MAX, effortLevels, localModelName, useSettings, variantForEffort } from './settings'
 import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
@@ -69,6 +69,8 @@ export default function App() {
   const modes = useSettings()
   const skills = useSkills()
   const modesActive = [modes.autopilot, modes.offloadShare > 0 || modes.offloadMin > 0, modes.audit].filter(Boolean).length
+  const effLevels = effortLevels(modes.localModel) // OD-74: the effort levels the active model really supports
+  const effKey = effLevels.some((l) => l.key === modes.effort) ? modes.effort : effLevels[0].key // keep a valid selection after a model switch
   const [modiOpen, setModiOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
@@ -543,7 +545,7 @@ export default function App() {
         // leaves a chat in the Verlauf that can be reopened and continued (the answer is fetched back from the server).
         persistChat(nextMsgs)
         // Carrying out runs without thinking unless "Gründlich" is chosen; a plan is always thought through (OD-29).
-        const variant = agent === 'plan' || modes.thinkMode === 'gruendlich' ? undefined : 'ohne-denken'
+        const variant = agent === 'plan' ? undefined : (variantForEffort(modes.localModel, modes.effort) || undefined) // OD-74: effort → reasoning variant (plan always thinks)
         try {
           await sendPrompt(sessionRef.current, text, modes.localModel, modes.workdir, agent, variant, files)
         } catch {
@@ -960,6 +962,21 @@ export default function App() {
                     onClick={() => void send()} disabled={!input.trim()} data-testid="send">Senden</button>
                 </div>
               )}
+            </div>
+            {/* OD-74: model + effort right under the prompt box. The effort levels are model-specific and really change
+                the reasoning (none/on for the uncensored weights; none/low/medium/xhigh for the original Qwen). */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
+              <select value={modes.localModel} data-testid="model-select" title="Lokales Modell, auf dem der Agent läuft"
+                className="min-w-0 max-w-[55%] truncate rounded-lg border border-line bg-bg px-2 py-1 text-ink2 outline-none hover:bg-user focus:border-accent/60"
+                onChange={(e) => { const id = e.target.value; const ls = effortLevels(id); modes.set({ localModel: id, ...(ls.some((l) => l.key === modes.effort) ? {} : { effort: ls[0].key }) }) }}>
+                {LOCAL_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <select value={effKey} data-testid="effort-select" title="Aufwand: wie viel das Modell vor dem Antworten nachdenkt (im Plan-Modus denkt es immer)"
+                className="shrink-0 rounded-lg border border-line bg-bg px-2 py-1 text-ink2 outline-none hover:bg-user focus:border-accent/60"
+                onChange={(e) => modes.set({ effort: e.target.value })}>
+                {effLevels.map((l) => <option key={l.key} value={l.key}>Aufwand: {l.label}</option>)}
+              </select>
+              <span className="min-w-0 flex-1 truncate text-ink3" data-testid="effort-hint">{effLevels.find((l) => l.key === effKey)?.hint}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-ink3">
               {/* Plan mode (OD-22): the next request goes to the read-only plan agent; "Plan umsetzen" then runs it. */}
