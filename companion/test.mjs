@@ -225,6 +225,13 @@ try {
   ok(kAfter.items.length === 1 && !kAfter.items.some((it) => it.id === kAdd.id), 'the deleted item is gone, the file-sourced one remains')
   const kEmptyContent = await post('/project-knowledge', { path: proj, content: '   ' })
   ok(kEmptyContent.error && /Leer/.test(kEmptyContent.error), '/project-knowledge refuses empty content')
+  // Local search (OD-73 stage 2): these two paths need no embedding model, so they stay safe in the standard suite
+  // (the real chunk→embed→cosine retrieval is proven separately against a live Ollama; the pure helpers in rag-test.mjs).
+  const emptyProj = await fs.mkdtemp(path.join(os.tmpdir(), 'opendante-empty-'))
+  const kSearchEmpty = await post('/project-knowledge/search', { path: emptyProj, query: 'egal' })
+  ok(Array.isArray(kSearchEmpty.results) && kSearchEmpty.results.length === 0, '/project-knowledge/search on an empty project returns no results (no model needed)')
+  const kSearchNoQuery = await post('/project-knowledge/search', { path: proj, query: '   ' })
+  ok(kSearchNoQuery.error && /Suchanfrage/.test(kSearchNoQuery.error), '/project-knowledge/search refuses an empty query')
 
   const noKey = await post('/claude', { prompt: 'hallo' })
   ok(noKey.error && /Schlüssel/.test(noKey.error), 'claude call without a stored key fails cleanly (no network)')

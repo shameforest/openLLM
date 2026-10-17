@@ -9,6 +9,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { buildIndex, search as ragSearch, indexSig, EMBED_MODEL } from './rag.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = process.env.OPENDANTE_ROOT || path.resolve(HERE, '..')
@@ -588,6 +589,24 @@ async function readKnowledgeText(dir, id) {
   try { return await fs.readFile(itemFile(dir, id), 'utf8') } catch { return '' }
 }
 
+// OD-73 stage 2: local retrieval. The embeddings index lives next to the knowledge; it is (re)built lazily when the
+// knowledge changed (signature mismatch) or the embedding model changed, so the first search after an edit is the slow one.
+const ragFile = (dir) => path.join(wissenDir(dir), '.rag.json')
+async function searchKnowledge(dir, query, k = 6) {
+  const d = reqDir(dir)
+  if (!String(query || '').trim()) throw new Error('Keine Suchanfrage.')
+  const items = await readWissenIndex(d)
+  if (!items.length) return { results: [], model: EMBED_MODEL, chunks: 0 }
+  const sig = indexSig(items)
+  let index = null
+  try { index = JSON.parse(await fs.readFile(ragFile(d), 'utf8')) } catch { /* no index yet */ }
+  if (!index || index.sig !== sig || index.model !== EMBED_MODEL) {
+    index = await buildIndex(items, (id) => readKnowledgeText(d, id), EMBED_MODEL)
+    await fs.writeFile(ragFile(d), JSON.stringify(index))
+  }
+  return { results: await ragSearch(index, query, k, EMBED_MODEL), model: EMBED_MODEL, chunks: index.chunks.length }
+}
+
 // ---- static web UI ----
 async function serveStatic(url, res) {
   let rel
@@ -659,6 +678,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/project-knowledge') return sendJson(res, 200, await listKnowledge(url.searchParams.get('path') || ''))
     if (req.method === 'POST' && url.pathname === '/project-knowledge') { const b = await readBody(req); return sendJson(res, 200, await addKnowledge(b.path, b)) }
     if (req.method === 'POST' && url.pathname === '/project-knowledge/delete') { const b = await readBody(req); return sendJson(res, 200, await removeKnowledge(b.path, b.id)) }
+    if (req.method === 'POST' && url.pathname === '/project-knowledge/search') { const b = await readBody(req); return sendJson(res, 200, await searchKnowledge(b.path, b.query, b.k)) }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/claude/test') { const b = await readBody(req); return sendJson(res, 200, await testClaude(b.model)) }
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())

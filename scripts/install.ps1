@@ -119,6 +119,11 @@ if ($SkipModel) {
     ollama pull $Model
     if ($LASTEXITCODE -ne 0) { Fail "Modell-Download fehlgeschlagen. Erneut starten setzt ihn fort. Namen pruefen auf ollama.com: $Model" }
     Ok "$Model vorhanden"
+    # Small Apache-2.0 embedder (389 MB) for the project-knowledge search (OD-73); runs on the CPU, so it never evicts the
+    # 27B from the GPU. Non-fatal: only the knowledge search needs it, the rest of OpenDante works without it.
+    ollama pull nomic-embed-text
+    if ($LASTEXITCODE -eq 0) { Ok "nomic-embed-text (Projektwissen-Suche) vorhanden" }
+    else { Write-Host "  Hinweis: nomic-embed-text nicht geladen (optional, nur fuer die Projektwissen-Suche). Spaeter: ollama pull nomic-embed-text" -ForegroundColor Yellow }
 }
 
 # 6 -------------------------------------------------------------- config + desktop shortcut
