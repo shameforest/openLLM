@@ -647,6 +647,17 @@ async function main() {
     await tid('attachment-remove').click() // clean up for the safety-net step
   })
 
+  // l ---------------------------------------------------------------------------------------------------------------
+  await step('l. OD-73: the "+" menu opens the Project view; without a working folder it shows the "no project" hint', async () => {
+    await tid('plus').click()
+    await visible('plus-menu')
+    await tid('open-project').click()
+    await visible('project-panel', 'project view')
+    await visible('project-none', 'the "no project" hint (no working folder chosen)')
+    await page.keyboard.press('Escape')
+    await hidden('project-panel', 'project view')
+  })
+
   // safety nets -----------------------------------------------------------------------------------------------------
   await step('no request escaped the mocks, no uncaught page error', async () => {
     check(s.external.length === 0, `requests to unexpected hosts were blocked: ${s.external.join(' | ')}`)

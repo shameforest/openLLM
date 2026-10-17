@@ -27,6 +27,7 @@ import { type Msg, CONTEXT_LIMIT, toThought, wroteFiles } from './messages'
 import { ALWAYS_KEY, GIT_SKIP_KEY, STEPS_KEY, TASKS_KEY, type AlwaysGrant, loadList, loadMap, saveList, saveMap } from './storage'
 import { AlwaysAllowed } from './AlwaysAllowed'
 import { FullAutoConfirm } from './FullAutoConfirm'
+import { ProjectPanel } from './ProjectPanel'
 import { DEMO, SIM_WPS } from './demo'
 import { ChatSidebar } from './ChatSidebar'
 import { Bubble } from './Bubble'
@@ -78,6 +79,7 @@ export default function App() {
   const [noteOpen, setNoteOpen] = useState(false)
   const [always, setAlways] = useState<Record<string, AlwaysGrant[]>>(() => loadMap<AlwaysGrant>(ALWAYS_KEY)) // OD-63: folder → standing "Immer erlauben" grants
   const [alwaysOpen, setAlwaysOpen] = useState(false)
+  const [projectOpen, setProjectOpen] = useState(false) // OD-73: the project view (name, instructions, knowledge, capacity)
   const [historyMsg, setHistoryMsg] = useState('')
   const sessionRef = useRef<string | null>(null)
   const simRef = useRef<() => void>(() => {})
@@ -895,6 +897,7 @@ export default function App() {
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setFilePickerOpen(true); setPlusOpen(false) }} data-testid="attach-file">📎 Datei anhängen… <span className="text-ink3">(Bilder auch mit Strg+V oder Ziehen)</span></button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setPickerOpen(true); setPlusOpen(false) }} data-testid="pick-folder">📁 Ordner hinzufügen…</button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setNoteOpen(true); setPlusOpen(false) }} data-testid="open-note" title="Dauerhafter Projekt-Kontext, der jeder Nachricht vorangestellt wird">📓 Projektnotiz{projectNote.trim() ? ' ✓' : '…'}</button>
+                    <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setProjectOpen(true); setPlusOpen(false) }} data-testid="open-project" title="Projekt: Name, Anweisungen und Wissen dieses Ordners">📁 Projekt</button>
                     <button className="w-full rounded-lg px-3 py-2 text-left hover:bg-user" onClick={() => { setAlwaysOpen(true); setPlusOpen(false) }} data-testid="open-always" title="Dauerhaft erlaubte Befehle/Dateien ansehen und widerrufen">🔓 Dauer-Freigaben{(always[effectiveDir]?.length) ? ` (${always[effectiveDir].length})` : '…'}</button>
                     {modes.folders.length > 0 && (
                       <div className="mt-1 border-t border-line pt-1">
@@ -965,6 +968,7 @@ export default function App() {
       <ProjectNote open={noteOpen} workdir={modes.workdir} onClose={() => setNoteOpen(false)} onSaved={(n) => setProjectNote(n)}
         onLearn={() => { setNoteOpen(false); void send({ text: 'Lerne dieses Projekt kennen: Sieh dir die wichtigsten Dateien an (README, package.json o. Ä., Einstiegspunkte, Ordnerstruktur) und schreibe eine KURZE Projektnotiz (Markdown, höchstens ~25 Zeilen) mit Zweck, Aufbau, wichtigen Befehlen (Start/Test/Build) und Konventionen. Lege den Ordner .opendante an, falls nötig, und speichere die Notiz in .opendante/projektnotiz.md. Gib am Ende nur einen kurzen Satz aus, dass die Notiz geschrieben wurde.', agent: 'build' }) }} />
       <AlwaysAllowed open={alwaysOpen} dir={effectiveDir} grants={always[effectiveDir] ?? []} onClose={() => setAlwaysOpen(false)} onRevoke={revokeAlways} onClearAll={clearAlways} />
+      <ProjectPanel open={projectOpen} dir={modes.workdir} instructions={projectNote} onClose={() => setProjectOpen(false)} onOpenInstructions={() => { setProjectOpen(false); setNoteOpen(true) }} />
       <FullAutoConfirm open={fullAutoConfirm} onCancel={() => setFullAutoConfirm(false)} onConfirm={confirmFullAuto} />
       <FolderPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFolders} />
       <FilePicker open={filePickerOpen} onClose={() => setFilePickerOpen(false)} onPick={addAttachments} />
