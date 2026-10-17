@@ -135,6 +135,8 @@ Reopening a chat from the Verlauf restores messages, thinking and counts and con
 | `RequestCard.tsx` | Permission card (Einmal / Immer / Ablehnen, loop: "Anders weitermachen") and question card |
 | `AlwaysAllowed.tsx` | OD-63 "Dauer-Freigaben" dialog: list + revoke the "Immer erlauben" grants OpenDante stores per folder |
 | `FullAutoConfirm.tsx` | OD-71 one-time risk dialog before the first "Voll-Automatik" run (auto-answers every permission/question) |
+| `ProjectPanel.tsx` | OD-73 project view ("+" menu): name/description, instructions (→ ProjectNote), knowledge add/remove + capacity bar |
+| `ProjectNote.tsx` | OD-41 project instructions dialog (per-folder `.opendante/projektnotiz.md`, prepended to every prompt) |
 | `messages.ts` | `Msg` type, `CONTEXT_LIMIT` (from opencode.json), `wroteFiles`, `toThought` |
 | `Bubble.tsx`, `ThinkingSidebar.tsx`, `TodoCard.tsx`, `ActivityCard.tsx`, `TurnActions.tsx`, `diffs.ts` | Answer bubble, thinking sidebar, task list, live activity card (OD-55: current action + files, from `run.turn.tools`), undo/diff/plan buttons, diff cleanup |
 | `loops.ts` | Loop detector (3 same errors / A-B oscillation / 4× same call) → "Anders weitermachen" |
@@ -161,8 +163,13 @@ Routes: `/health`; `GET/POST /skills`; `GET /repos`, `POST /repo/clone` (GitHub 
 needs `.git`); `POST /git/prepare` (writes `.gitignore`, refuses drive roots/home/system folders); `POST /settings`
 (AGENTS.md user block, key file — **an empty key deletes the key file**); `POST /claude` (Anthropic proxy, price table,
 daily cap from the request's `capUsd`); `POST /claude/test`; `GET /claude/usage`; `POST /update/app` (detached
-`git pull` + `install.ps1 -SkipModel`); `POST /update/models` (`ollama pull`). No shell anywhere (argv arrays); no
-path traversal found.
+`git pull` + `install.ps1 -SkipModel`); `POST /update/models` (`ollama pull`); `POST /attach` (save a pasted/dropped
+image). **Projekte (OD-41/OD-73), stored in the project's gitignored `.opendante/`:** `GET/POST /project-note`
+(instructions); `GET/POST /project-meta` (name/description → `projekt.json`); `GET /project-knowledge`,
+`POST /project-knowledge` (add text/file), `/project-knowledge/delete`; `/project-knowledge/search` and `/context` —
+local RAG via **`companion/rag.mjs`** (zero-dep chunk/cosine/top-k; embeddings from Ollama `nomic-embed-text` on the CPU,
+`num_gpu:0`, so it never evicts the 27B; a `.rag.json` index per project, rebuilt lazily on a signature change). No shell
+anywhere (argv arrays); no path traversal found.
 
 ### config/ (installed to ~/.config/opencode)
 - `opencode.json`: model default, `autoupdate:false`, `share:"disabled"`, provider `ollama` (`@ai-sdk/openai-compatible`,
