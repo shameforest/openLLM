@@ -61,8 +61,13 @@ interface State extends Modes {
   // local model rarely offloads on its own. 0 = never force it. Enforced MIN ≤ MAX in the UI.
   offloadShare: number
   offloadMin: number
+  // OD-75: rule-based auto-help. When on, OpenDante decides AT TURN END whether to pull in Claude, from fixed,
+  // observable signals (the local model admitted it got stuck, a risky area like deletion/money/permissions/tricky
+  // logic, or a large change) — instead of a token share the local 27B never fills on its own. 0 cost until a rule
+  // fires; each call still obeys the daily cap and needs the Claude key.
+  autoClaude: boolean
   toggle: (k: keyof Modes) => void
-  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'effort' | 'offloadShare' | 'offloadMin' | 'fullAutoAck'>>) => void
+  set: (p: Partial<Pick<State, 'globalInstructions' | 'apiKey' | 'claudeModel' | 'localModel' | 'workdir' | 'folders' | 'thinkingOpen' | 'keepWarmMin' | 'planFirst' | 'claudeDailyUsd' | 'effort' | 'offloadShare' | 'offloadMin' | 'fullAutoAck' | 'autoClaude'>>) => void
   addFolders: (paths: string[]) => void // remember folders and make the first one active
   removeFolder: (path: string) => void
 }
@@ -88,6 +93,7 @@ export const useSettings = create<State>()(
       effort: 'schnell',
       offloadShare: 0, // MAX: off until the user moves the slider above the prompt box
       offloadMin: 0, // MIN floor: off until set; then Claude improves the result when the local model offloaded too little
+      autoClaude: false, // OD-75: rule-based auto-help off until the user turns it on
       toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
       set: (p) => set(p),
       addFolders: (paths) => set((s) => {

@@ -17,7 +17,7 @@ import { expandSkillCommand, useSkills } from './skills'
 import { FolderPicker, baseName } from './FolderPicker'
 import { FilePicker } from './FilePicker'
 import { type Attachment, IMAGE_HINT, blobToBase64, isImageName, mergeAttachments, withAttachmentLines } from './attachments'
-import { OFFLOAD_PREFIX, claudeAudit, claudeImprove, claudeOffload, claudeShareBelow, offloadAllowed, offloadBudget, offloadTasks, setOffloadPrefs } from './claude'
+import { OFFLOAD_PREFIX, autoClaudeTrigger, claudeAudit, claudeImprove, claudeOffload, claudeShareBelow, offloadAllowed, offloadBudget, offloadTasks, setOffloadPrefs } from './claude'
 import { type ChatUsage, addClaude, addLocal, emptyUsage, fmtExact, turnTokens } from './usage'
 import { type Thought, ThinkingSidebar } from './ThinkingSidebar'
 import { chatTitle, newChatId, useChats } from './chats'
@@ -68,7 +68,7 @@ export default function App() {
   const [, setTick] = useState(0)
   const modes = useSettings()
   const skills = useSkills()
-  const modesActive = [modes.autopilot, modes.offloadShare > 0 || modes.offloadMin > 0, modes.audit].filter(Boolean).length
+  const modesActive = [modes.autopilot, modes.offloadShare > 0 || modes.offloadMin > 0 || modes.autoClaude, modes.audit].filter(Boolean).length
   const effLevels = effortLevels(modes.localModel) // OD-74: the effort levels the active model really supports
   const effKey = effLevels.some((l) => l.key === modes.effort) ? modes.effort : effLevels[0].key // keep a valid selection after a model switch
   const [modiOpen, setModiOpen] = useState(false)
@@ -458,7 +458,7 @@ export default function App() {
       }
     }
     // Hand suitable work to Claude — but never for the offline demo or a turn the user stopped (AN-08).
-    if (!run.sim && !run.stopped && !run.gap && !t.error && t.text.trim() && (modes.offloadShare > 0 || modes.offloadMin > 0 || modes.audit)) {
+    if (!run.sim && !run.stopped && !run.gap && !t.error && t.text.trim() && (modes.offloadShare > 0 || modes.offloadMin > 0 || modes.audit || modes.autoClaude)) {
       const localTotal = usageRef.current.local + turnTokens(t).tokens
       void postProcessClaude(t, localTotal)
     }
@@ -612,6 +612,33 @@ export default function App() {
         setUsage((u) => addClaude(u, 'audit', r.usage))
         inChat({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit (${r.model}):\n\n${r.text}` })
       } catch (e) { inChat({ role: 'assistant', kind: 'claude', text: `🔍 Claude-Audit ging nicht: ${String((e as Error).message || e)}` }) }
+    }
+    // OD-75: rule-based auto-help — OpenDante itself decides whether this turn needs Claude, from observable signals
+    // (the local model does not self-offload). Independent of the sliders above; obeys the same key and daily cap.
+    if (modes.autoClaude) {
+      let filesChanged = 0, linesChanged = 0, changedText = ''
+      const sid = sessionRef.current
+      if (sid && t.userMsgs?.length && hasGit !== false) {
+        try {
+          const ds = (await Promise.all(t.userMsgs.map((id) => sessionDiff(sid, id, modes.workdir).catch(() => [] as FileDiff[])))).flat()
+          filesChanged = ds.length
+          linesChanged = ds.reduce((n, f) => n + (f.additions || 0) + (f.deletions || 0), 0)
+          changedText = ds.map((f) => `${f.file ?? ''} ${f.patch ?? ''}`).join('\n').slice(0, 4000)
+        } catch { /* no diffs → the size/area rules simply do not fire */ }
+      }
+      const hit = autoClaudeTrigger({ filesChanged, linesChanged, prompt: lastPromptRef.current, changedText, answer: text })
+      if (hit) {
+        const doing = hit.kind === 'improve' ? '↗ Claude hilft nach' : '🔍 Claude prüft'
+        if (chatRef.current?.id === myChat) setMessages((m) => [...m, { role: 'assistant', kind: 'claude', text: `${doing} (${hit.reason}) …`, pending: true }])
+        try {
+          const r = hit.kind === 'improve'
+            ? await claudeImprove(lastPromptRef.current, text, modes.claudeModel, modes.claudeDailyUsd)
+            : await claudeAudit(text, modes.claudeModel, modes.claudeDailyUsd)
+          setUsage((u) => addClaude(u, hit.kind, r.usage))
+          const head = hit.kind === 'improve' ? `↗ Von Claude verbessert (${r.model}) – ${hit.reason}` : `🔍 Claude-Prüfung (${r.model}) – ${hit.reason}`
+          inChat({ role: 'assistant', kind: 'claude', text: `${head}:\n\n${r.text}` })
+        } catch (e) { inChat({ role: 'assistant', kind: 'claude', text: `↗ Claude-Hilfe ging nicht: ${String((e as Error).message || e)}` }) }
+      }
     }
   }
 
@@ -793,7 +820,7 @@ export default function App() {
             <div className="mb-2" data-testid="offload-row">
               <div className="flex items-center justify-between gap-3">
                 <span className="shrink-0 text-[12px] text-ink2">↗ Claude-Hilfe</span>
-                {(modes.offloadShare > 0 || modes.offloadMin > 0 || modes.audit) && <UsageReadout u={shownUsage} />}
+                {(modes.offloadShare > 0 || modes.offloadMin > 0 || modes.audit || modes.autoClaude) && <UsageReadout u={shownUsage} />}
               </div>
               <div className="mt-1 flex items-center gap-3">
                 <label htmlFor="offload-share" className="w-[72px] shrink-0 text-[11px] text-ink3" title="So viel darf Claude höchstens von der Aufgabe übernehmen — nur unbedenkliche, in sich geschlossene Teilaufgaben.">Höchstens</label>
@@ -828,6 +855,13 @@ export default function App() {
                 </div>
               )}
             </div>
+            {/* OD-75: rule-based auto-help — OpenDante itself pulls in Claude on big/risky changes or when the local
+                model got stuck, independent of the share sliders above. */}
+            <label className="mb-2 flex flex-wrap items-center gap-x-2 text-[12px] text-ink2" data-testid="autoclaude-row">
+              <input type="checkbox" className="accent-accent" checked={modes.autoClaude} onChange={() => modes.set({ autoClaude: !modes.autoClaude })} data-testid="autoclaude" />
+              <span>Claude automatisch bei kniffligen Stellen</span>
+              <span className="text-[11px] text-ink3">große oder heikle Änderung, oder wenn das lokale Modell nicht durchkommt — kostet dann API-Gebühren</span>
+            </label>
             {(perms.length > 0 || questions.length > 0) && (
               <RequestCard perms={perms} questions={questions} autoAllow={modes.autoAllow} workdir={effectiveDir} safeDirs={safeDirs}
                 onPermission={onPermissionReply}

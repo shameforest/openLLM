@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { claudeShareBelow, hideOffloadMarkers, offloadAllowed, offloadBudget, offloadTasks, taskSplit } from './claude'
+import { autoClaudeTrigger, claudeShareBelow, hideOffloadMarkers, offloadAllowed, offloadBudget, offloadTasks, taskSplit } from './claude'
 
 describe('hideOffloadMarkers', () => {
   it('replaces a closed handoff block with a short note', () => {
@@ -101,5 +101,29 @@ describe('claudeShareBelow — the MIN floor triggers a Claude improvement (OD-6
   it('is off when MIN is 0, and treats "nothing yet" as below the floor', () => {
     expect(claudeShareBelow(0, 1000, 0)).toBe(false)
     expect(claudeShareBelow(0.2, 0, 0)).toBe(true)
+  })
+})
+
+describe('autoClaudeTrigger — OpenDante decides on its own when to pull in Claude (OD-75)', () => {
+  const base = { filesChanged: 0, linesChanged: 0, prompt: '', changedText: '', answer: '' }
+  it('asks Claude to improve when the local model admits it got stuck', () => {
+    expect(autoClaudeTrigger({ ...base, answer: 'Ich habe es versucht, aber der Test schlägt fehl.' })?.kind).toBe('improve')
+    expect(autoClaudeTrigger({ ...base, answer: 'Konnte den Fehler leider nicht beheben.' })?.kind).toBe('improve')
+  })
+  it('asks Claude to review a risky area (deletion, money, permissions, tricky logic)', () => {
+    expect(autoClaudeTrigger({ ...base, prompt: 'Lösche alle alten Nutzer aus der Datenbank.' })?.kind).toBe('audit')
+    expect(autoClaudeTrigger({ ...base, prompt: 'Baue die Stripe-Zahlung ein.' })?.kind).toBe('audit')
+    expect(autoClaudeTrigger({ ...base, changedText: 'src/auth.ts  chmod 777 /etc/passwd' })?.kind).toBe('audit')
+    expect(autoClaudeTrigger({ ...base, prompt: 'Schreibe einen Regex für E-Mail-Adressen.' })?.kind).toBe('audit')
+  })
+  it('asks Claude to review a large change', () => {
+    expect(autoClaudeTrigger({ ...base, filesChanged: 5 })?.kind).toBe('audit')
+    expect(autoClaudeTrigger({ ...base, linesChanged: 200 })?.kind).toBe('audit')
+  })
+  it('does nothing for a small, safe, successful change', () => {
+    expect(autoClaudeTrigger({ ...base, filesChanged: 2, linesChanged: 40, prompt: 'Benenne eine Variable um.', answer: 'Erledigt.' })).toBeNull()
+  })
+  it('prioritises a struggle (fix) over a large change (review)', () => {
+    expect(autoClaudeTrigger({ ...base, filesChanged: 9, answer: 'Der Test schlägt fehl.' })?.kind).toBe('improve')
   })
 })

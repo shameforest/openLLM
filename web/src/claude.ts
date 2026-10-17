@@ -130,3 +130,30 @@ export function claudeShareBelow(minShare: number, localTokens: number, claudeTo
   if (total <= 0) return true // nothing measured yet → below the floor
   return claudeTokens / total < minShare - 0.001 // tiny epsilon so being exactly at the floor does not retrigger
 }
+
+// OD-75 — rule-based auto-help. OpenDante itself decides when a finished turn warrants Claude, from fixed, OBSERVABLE
+// signals, because the local 27B does not self-offload (measured 2026-10-16). Pure + unit-tested; makes no call itself.
+// Returns the first firing rule (most actionable first) or null.
+export interface AutoSignals {
+  filesChanged: number // files this turn changed (from the per-message diffs)
+  linesChanged: number // added + deleted lines across those files
+  prompt: string       // the user's request this turn
+  changedText: string  // changed file paths + patch text, joined (for keyword scan)
+  answer: string       // the local model's finished answer
+}
+export interface AutoHelpHit { kind: 'improve' | 'audit'; reason: string }
+
+// The local model openly says it got stuck → Claude should FIX it, not just review.
+const AUTO_STRUGGLE = /(fehlgeschlagen|funktioniert( noch)? nicht|konnte[^.]{0,30}nicht|keine lösung gefunden|komme nicht weiter|stecke fest|immer noch .{0,12}fehler|schlägt fehl|schlagen fehl|could not|couldn'?t|failed to)/i
+// Error-prone areas for a small model → an independent Claude REVIEW pays off (data loss, money, access, tricky logic).
+const AUTO_RISK = /(rm\s+-rf|lösch\w*|\bdelete\b|drop\s+table|truncate|zahlung|payment|stripe|paypal|kreditkart|credit\s*card|\biban\b|überweis\w*|passwort|password|api[-_ ]?key|zugangsdaten|chmod|berechtigung|permission|\bregex\b|regulär.{0,4}ausdruck|zeitzone|timezone|schaltjahr|verschlüssel\w*)/i
+
+export function autoClaudeTrigger(s: AutoSignals): AutoHelpHit | null {
+  if (AUTO_STRUGGLE.test(s.answer))
+    return { kind: 'improve', reason: 'das lokale Modell kam nicht sicher durch' }
+  if (AUTO_RISK.test(s.prompt) || AUTO_RISK.test(s.changedText))
+    return { kind: 'audit', reason: 'heikle Stelle (z. B. Löschen, Geld, Rechte, Regex) – unabhängige Prüfung' }
+  if (s.filesChanged > 3 || s.linesChanged > 150)
+    return { kind: 'audit', reason: `große Änderung (${s.filesChanged} Dateien, ${s.linesChanged} Zeilen) – unabhängige Prüfung` }
+  return null
+}
