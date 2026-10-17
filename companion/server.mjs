@@ -496,6 +496,98 @@ async function writeProjectNote(dir, content) {
   return { ok: true, chars: s.trim() ? s.length : 0 }
 }
 
+// ---- Projekte & Projektwissen (OD-73: a Claude-Projects-style per-folder knowledge base; instructions are the OD-41
+// Projektnotiz, knowledge items live in .opendante/wissen/ and are prepended to every prompt in the project — or, when
+// they outgrow the model's context window, searched via local embeddings, see claude-mcp/rag in a later step). Stored
+// inside the project (in the gitignored .opendante/) so it travels with the folder. ~4 chars ≈ 1 token (as the UI). ----
+const estTokens = (chars) => Math.round((chars || 0) / 4)
+const projFile = (dir) => path.join(reqDir(dir), '.opendante', 'projekt.json')
+const wissenDir = (dir) => path.join(reqDir(dir), '.opendante', 'wissen')
+const itemFile = (dir, id) => path.join(wissenDir(dir), `${String(id).replace(/[^\w-]/g, '')}.txt`)
+function reqDir(dir) {
+  const raw = String(dir || '').trim()
+  if (!raw) throw new Error('Kein Projektordner gewählt.')
+  const d = path.resolve(raw)
+  if (d === path.parse(d).root) throw new Error('Kein gültiger Projektordner.')
+  return d
+}
+async function assertDir(dir) {
+  const d = reqDir(dir)
+  const st = await fs.stat(d).catch(() => null)
+  if (!st || !st.isDirectory()) throw new Error('Kein gültiger Projektordner.')
+  return d
+}
+async function readProjectMeta(dir) {
+  if (!String(dir || '').trim()) return { name: '', description: '', createdAt: null } // the default server folder is not a project
+  const d = reqDir(dir)
+  let meta = {}
+  try { meta = JSON.parse(await fs.readFile(projFile(d), 'utf8')) } catch { /* no meta yet */ }
+  return { name: (meta.name && String(meta.name)) || path.basename(d), description: String(meta.description || ''), createdAt: meta.createdAt || null }
+}
+async function writeProjectMeta(dir, { name, description }) {
+  const d = await assertDir(dir)
+  const prev = await readProjectMeta(d)
+  const meta = {
+    name: String(name ?? prev.name ?? path.basename(d)).trim().slice(0, 120) || path.basename(d),
+    description: String(description ?? prev.description ?? '').slice(0, 2000),
+    createdAt: prev.createdAt || Date.now(),
+  }
+  await fs.mkdir(path.join(d, '.opendante'), { recursive: true })
+  await fs.writeFile(projFile(d), JSON.stringify(meta, null, 2))
+  return meta
+}
+async function readWissenIndex(dir) {
+  try { const v = JSON.parse(await fs.readFile(path.join(wissenDir(dir), 'index.json'), 'utf8')); return Array.isArray(v) ? v : [] } catch { return [] }
+}
+async function writeWissenIndex(dir, items) {
+  await fs.mkdir(wissenDir(dir), { recursive: true })
+  await fs.writeFile(path.join(wissenDir(dir), 'index.json'), JSON.stringify(items, null, 2))
+}
+async function listKnowledge(dir) {
+  if (!String(dir || '').trim()) return { items: [], chars: 0, tokens: 0 }
+  const items = await readWissenIndex(dir)
+  const chars = items.reduce((n, it) => n + (it.chars || 0), 0)
+  return { items, chars, tokens: estTokens(chars) }
+}
+const MAX_ITEM_CHARS = 2_000_000 // ~500k tokens; big items are fine — RAG retrieves from them when they outgrow the window
+async function addKnowledge(dir, { name, content, srcPath }) {
+  const d = await assertDir(dir)
+  let text = '', itemName = String(name || '').trim()
+  if (srcPath) {
+    const sp = path.resolve(String(srcPath))
+    const sst = await fs.stat(sp).catch(() => null)
+    if (!sst || !sst.isFile()) throw new Error('Datei nicht gefunden.')
+    if (sst.size > MAX_ITEM_CHARS) throw new Error('Datei zu groß (max. 2 MB Text).')
+    const buf = await fs.readFile(sp)
+    if (buf.includes(0)) throw new Error('Nur Textdateien (keine Bilder/PDF/Binärdateien) — die kommen später.')
+    text = buf.toString('utf8')
+    itemName = itemName || path.basename(sp)
+  } else {
+    text = String(content || '')
+    itemName = itemName || 'Notiz'
+  }
+  if (!text.trim()) throw new Error('Leerer Inhalt.')
+  if (text.length > MAX_ITEM_CHARS) throw new Error('Inhalt zu groß (max. 2 MB Text).')
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  await fs.mkdir(wissenDir(d), { recursive: true })
+  await fs.writeFile(itemFile(d, id), text)
+  const items = await readWissenIndex(d)
+  const item = { id, name: itemName.slice(0, 200), chars: text.length, addedAt: Date.now() }
+  items.push(item)
+  await writeWissenIndex(d, items)
+  return item
+}
+async function removeKnowledge(dir, id) {
+  const d = reqDir(dir)
+  const items = await readWissenIndex(d)
+  await fs.rm(itemFile(d, id), { force: true })
+  await writeWissenIndex(d, items.filter((it) => it.id !== id))
+  return { ok: true }
+}
+async function readKnowledgeText(dir, id) {
+  try { return await fs.readFile(itemFile(dir, id), 'utf8') } catch { return '' }
+}
+
 // ---- static web UI ----
 async function serveStatic(url, res) {
   let rel
@@ -562,6 +654,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/attach') { const b = await readBody(req); return sendJson(res, 200, await saveAttachment(b)) }
     if (req.method === 'GET' && url.pathname === '/project-note') return sendJson(res, 200, await readProjectNote(url.searchParams.get('path') || ''))
     if (req.method === 'POST' && url.pathname === '/project-note') { const b = await readBody(req); return sendJson(res, 200, await writeProjectNote(b.path, b.content)) }
+    if (req.method === 'GET' && url.pathname === '/project-meta') return sendJson(res, 200, await readProjectMeta(url.searchParams.get('path') || ''))
+    if (req.method === 'POST' && url.pathname === '/project-meta') { const b = await readBody(req); return sendJson(res, 200, await writeProjectMeta(b.path, b)) }
+    if (req.method === 'GET' && url.pathname === '/project-knowledge') return sendJson(res, 200, await listKnowledge(url.searchParams.get('path') || ''))
+    if (req.method === 'POST' && url.pathname === '/project-knowledge') { const b = await readBody(req); return sendJson(res, 200, await addKnowledge(b.path, b)) }
+    if (req.method === 'POST' && url.pathname === '/project-knowledge/delete') { const b = await readBody(req); return sendJson(res, 200, await removeKnowledge(b.path, b.id)) }
     if (req.method === 'POST' && url.pathname === '/claude') { const b = await readBody(req); return sendJson(res, 200, await callClaude(b)) }
     if (req.method === 'POST' && url.pathname === '/claude/test') { const b = await readBody(req); return sendJson(res, 200, await testClaude(b.model)) }
     if (req.method === 'GET' && url.pathname === '/claude/usage') return sendJson(res, 200, await claudeUsage())
